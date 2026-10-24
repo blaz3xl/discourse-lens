@@ -5,11 +5,40 @@ from typing import cast
 import pytest
 from fastapi.testclient import TestClient
 
+from discourselens.errors import QuotaError
 from discourselens.project import Project
 from discourselens.vectors import RetrievalSearchResult, VectorHit
-from discourselens.web import create_app
+from discourselens.web import (
+    _chat_debug,
+    _chat_generation_error_message,
+    create_app,
+)
 
 TOKEN = "d" * 64
+
+
+def test_chat_debug_trace_is_off_by_default_and_enabled_by_environment(
+    monkeypatch: pytest.MonkeyPatch, capsys
+):
+    monkeypatch.delenv("DISCOURSELENS_DEBUG", raising=False)
+    _chat_debug("chat.plan.request", prompt="private prompt")
+    assert capsys.readouterr().err == ""
+
+    monkeypatch.setenv("DISCOURSELENS_DEBUG", "on")
+    _chat_debug("chat.plan.request", prompt="private prompt")
+    output = capsys.readouterr().err
+    assert "DISCOURSELENS_DEBUG" in output
+    assert '"prompt":"private prompt"' in output
+
+    monkeypatch.setenv("DISCOURSELENS_DEBUG", "off")
+    _chat_debug("chat.plan.request", prompt="private prompt")
+    assert capsys.readouterr().err == ""
+
+
+def test_chat_quota_error_has_a_clear_credit_message():
+    assert _chat_generation_error_message(QuotaError("quota exhausted")) == (
+        "API sin créditos. Revisa el saldo y los límites de facturación del proveedor."
+    )
 
 
 @pytest.fixture

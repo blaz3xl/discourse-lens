@@ -1182,6 +1182,27 @@ def test_provider_quota_error_body_is_classified_without_echoing_provider_text()
     assert isinstance(captured.value, ModelProviderError)
 
 
+def test_provider_quota_code_on_403_is_not_misclassified_as_authentication():
+    error = HTTPError(
+        "https://example.test/v1/chat/completions",
+        403,
+        "Forbidden",
+        Message(),
+        BytesIO(
+            json.dumps(
+                {"error": {"code": "insufficient_balance", "message": "no credits"}}
+            ).encode()
+        ),
+    )
+    provider = OpenAICompatibleProvider("https://example.test/v1", "OPENAI_KEY", _Secrets())
+
+    with (
+        patch("discourselens.providers._open_provider_request", side_effect=error),
+        pytest.raises(QuotaError),
+    ):
+        provider.generate(GenerationRequest("prompt", "model-a"))
+
+
 def test_openai_provider_uses_the_official_default_endpoint_without_an_endpoint_setting():
     response = MagicMock()
     response.read.return_value = b'{"choices":[{"message":{"content":"grounded"},"finish_reason":"stop"}]}'

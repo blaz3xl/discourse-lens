@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
 import hmac
 import json
 import logging
 import os
 import re
+import sys
 import tempfile
 import threading
 import time
@@ -67,6 +69,9 @@ _LOGGER = logging.getLogger(__name__)
 _ACTIVE_CHAT_CONVERSATION: ContextVar[str | None] = ContextVar(
     "discourselens_active_chat_conversation", default=None
 )
+_ACTIVE_CHAT_TRACE_ID: ContextVar[str | None] = ContextVar(
+    "discourselens_active_chat_trace_id", default=None
+)
 _CHAT_EMBEDDING_TOOLS = frozenset(
     {
         "build_paragraph_embedding_index",
@@ -86,6 +91,37 @@ _CHAT_AGENT_PLAN_SCHEMA: dict[str, object] = {
     "required": ["final_answer", "kind", "tool_name", "arguments_json"],
     "additionalProperties": False,
 }
+
+
+def _chat_debug(event: str, **fields: object) -> None:
+    """Log an opt-in, content-rich trace for one chat turn.
+
+    DISCOURSELENS_DEBUG=on intentionally includes prompts, model output, and tool
+    results. Keep it off during normal use because those fields may contain private
+    conversation or source text. Provider credentials and request headers are never
+    passed to this logger.
+    """
+    if os.environ.get("DISCOURSELENS_DEBUG", "off").strip().casefold() != "on":
+        return
+    record: dict[str, object] = {
+        "event": event,
+        "timestamp": time.time(),
+    }
+    trace_id = _ACTIVE_CHAT_TRACE_ID.get()
+    conversation_id = _ACTIVE_CHAT_CONVERSATION.get()
+    if trace_id:
+        record["trace_id"] = trace_id
+    if conversation_id:
+        record["conversation_id"] = conversation_id
+    record.update(fields)
+    try:
+        serialized = json.dumps(record, ensure_ascii=False, separators=(",", ":"), default=str)
+    except (TypeError, ValueError, RecursionError):
+        serialized = json.dumps(
+            {"event": event, "trace_id": trace_id, "serialization_error": True},
+            separators=(",", ":"),
+        )
+    print(f"DISCOURSELENS_DEBUG {serialized}", file=sys.stderr, flush=True)
 
 
 def _decode_chat_agent_plan(response: str, *, structured: bool) -> object:
@@ -315,7 +351,7 @@ def _chat_generation_error_message(error: Exception) -> str:
     if isinstance(error, AuthenticationError):
         return "El proveedor rechazó la clave guardada. Revisa la credencial en Ajustes."
     if isinstance(error, QuotaError):
-        return "La cuenta del proveedor alcanzó su límite de uso o facturación."
+        return "API sin créditos. Revisa el saldo y los límites de facturación del proveedor."
     if isinstance(error, RateLimitError):
         return "El proveedor limitó las solicitudes. Espera un momento y vuelve a intentarlo."
     if isinstance(error, ModelResponseError):
@@ -503,6 +539,25 @@ def _run_chat_agent(
                 and isinstance(preset_capabilities, dict)
                 and preset_capabilities.get("streaming") is True
             )
+            _chat_debug(
+                "chat.plan.request",
+                attempt=len(tool_results) + 1,
+                provider=preset_snapshot.get("provider_id"),
+                model=preset_snapshot.get("model"),
+                structured_output=structured_plan,
+                response_schema=(
+                    {"name": "chat_agent_plan", "schema": _CHAT_AGENT_PLAN_SCHEMA}
+                    if structured_plan
+                    else None
+                ),
+                streaming=can_stream,
+                reasoning=reasoning_override,
+                reasoning_mode=reasoning_mode_override,
+                prompt_sha256=hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
+                prompt_chars=len(prompt),
+                system_prompt=generation_options["system_prompt"],
+                prompt=prompt,
+            )
             if can_stream:
                 parser = _FinalAnswerStreamParser()
                 streamed_parts: list[str] = []
@@ -528,8 +583,28 @@ def _run_chat_agent(
                 response = project.generate_with_preset(
                     preset_name, prompt, **cast(Any, generation_options)
                 ).response.text
+            _chat_debug(
+                "chat.plan.response",
+                attempt=len(tool_results) + 1,
+                response_chars=len(response),
+                response_sha256=hashlib.sha256(response.encode("utf-8")).hexdigest(),
+                response=response,
+            )
             plan = _decode_chat_agent_plan(response, structured=structured_plan)
         except (ProjectError, TypeError, json.JSONDecodeError, RecursionError) as exc:
+            error_details: dict[str, object] = {
+                "attempt": len(tool_results) + 1,
+                "error_type": type(exc).__name__,
+                "error": str(exc),
+            }
+            if isinstance(exc, json.JSONDecodeError):
+                error_details.update(
+                    json_message=exc.msg,
+                    json_position=exc.pos,
+                    json_line=exc.lineno,
+                    json_column=exc.colno,
+                )
+            _chat_debug("chat.plan.error", **error_details)
             raise HTTPException(
                 status_code=502,
                 detail=_chat_generation_error_message(exc),
@@ -553,6 +628,7 @@ def _run_chat_agent(
             or plan["tool_name"] not in catalog
             or not isinstance(plan.get("arguments"), dict)
         ):
+            _chat_debug("chat.plan.invalid_action", plan=plan)
             raise HTTPException(
                 status_code=502,
                 detail="El asistente eligió una operación no disponible; vuelve a intentarlo.",
@@ -589,9 +665,25 @@ def _run_chat_agent(
                 f"{finalization_format_guidance}"
             )
             try:
+                _chat_debug(
+                    "chat.finalization.request",
+                    provider=preset_snapshot.get("provider_id"),
+                    model=preset_snapshot.get("model"),
+                    structured_output=structured_plan,
+                    prompt_sha256=hashlib.sha256(
+                        finalization_prompt.encode("utf-8")
+                    ).hexdigest(),
+                    system_prompt=finalization_options["system_prompt"],
+                    prompt=finalization_prompt,
+                )
                 final_response = project.generate_with_preset(
                     preset_name, finalization_prompt, **cast(Any, finalization_options)
                 ).response.text
+                _chat_debug(
+                    "chat.finalization.response",
+                    response_chars=len(final_response),
+                    response=final_response,
+                )
                 final_plan = _decode_chat_agent_plan(
                     final_response, structured=structured_plan
                 )
@@ -605,7 +697,13 @@ def _run_chat_agent(
                     final_answer = _replace_internal_citation_ids(
                         final_plan["final_answer"].strip(), id_citations
                     )
-            except (ProjectError, TypeError, json.JSONDecodeError, RecursionError):
+            except (ProjectError, TypeError, json.JSONDecodeError, RecursionError) as exc:
+                _chat_debug(
+                    "chat.finalization.error",
+                    error_type=type(exc).__name__,
+                    error=str(exc),
+                    json_position=exc.pos if isinstance(exc, json.JSONDecodeError) else None,
+                )
                 final_answer = None
             if final_answer is None:
                 final_answer = (
@@ -616,6 +714,7 @@ def _run_chat_agent(
             break
         tool_name = plan["tool_name"]
         arguments = dict(plan["arguments"])
+        _chat_debug("chat.tool.request", tool_name=tool_name, arguments=arguments)
         framework = arguments.get("framework_id") if tool_name == "ask_question" else None
         action = f"Llamando a {tool_name}"
         if isinstance(framework, str):
@@ -665,7 +764,10 @@ def _run_chat_agent(
             result = asyncio.run(
                 mcp_server.call_tool_for_project(project_root, tool_name, arguments)
             )
-        except Exception:  # noqa: BLE001 - MCP tools expose heterogeneous runtime errors.
+        except Exception as exc:  # noqa: BLE001 - MCP tools expose heterogeneous runtime errors.
+            _chat_debug(
+                "chat.tool.error", tool_name=tool_name, error_type=type(exc).__name__, error=str(exc)
+            )
             _record_chat_activity(f"{tool_name} no pudo completar la operación; el asistente revisará otra opción.")
             tool_results.append(
                 {
@@ -704,6 +806,12 @@ def _run_chat_agent(
                 "arguments": arguments,
                 "result": serialized_result[:_CHAT_AGENT_RESULT_CHARS],
             }
+        )
+        _chat_debug(
+            "chat.tool.response",
+            tool_name=tool_name,
+            result_chars=len(serialized_result),
+            result=serialized_result[:_CHAT_AGENT_RESULT_CHARS],
         )
         _record_chat_activity(f"Resultado recibido de {tool_name}.")
         if tool_name == "ask_question":
@@ -2408,6 +2516,18 @@ def create_app(
                 }
                 _begin_chat_activity(conversation_id, metadata=metadata)
                 activity_token = _ACTIVE_CHAT_CONVERSATION.set(conversation_id)
+                trace_token = _ACTIVE_CHAT_TRACE_ID.set(uuid.uuid4().hex)
+                _chat_debug(
+                    "chat.turn.started",
+                    question=question,
+                    provider=metadata["provider_id"],
+                    model=metadata["model"],
+                    reasoning=metadata["reasoning"],
+                    reasoning_mode=metadata["reasoning_mode"],
+                    retrieval_mode=metadata["retrieval_mode"],
+                    revision_ids=conversation["revision_ids"],
+                    conversation_context=context,
+                )
                 try:
                     result = _run_chat_agent(
                         project,
@@ -2419,7 +2539,12 @@ def create_app(
                         payload.get("embedding_egress_acknowledged") is True,
                         **agent_arguments,
                     )
-                except Exception:
+                except Exception as exc:
+                    _chat_debug(
+                        "chat.turn.failed",
+                        error_type=type(exc).__name__,
+                        error=str(exc),
+                    )
                     _finish_chat_activity(
                         conversation_id,
                         "error",
@@ -2427,8 +2552,10 @@ def create_app(
                     )
                     raise
                 else:
+                    _chat_debug("chat.turn.completed", result=result)
                     _finish_chat_activity(conversation_id, "complete", "Respuesta completada.")
                 finally:
+                    _ACTIVE_CHAT_TRACE_ID.reset(trace_token)
                     _ACTIVE_CHAT_CONVERSATION.reset(activity_token)
                 metadata["selected_framework_ids"] = result.get("selected_framework_ids", [])
                 tool_results = result.get("tool_results", [])

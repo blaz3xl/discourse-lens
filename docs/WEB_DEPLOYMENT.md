@@ -75,6 +75,22 @@ embedding provider. Retrieval returns cited passages and a run ID; it does not
 generate a discourse interpretation or an LLM answer. Lexical search and corpus
 statistics remain local.
 
+## Debugging a chat request
+
+Chat tracing is off by default. Set `DISCOURSELENS_DEBUG=on` for one diagnostic
+run to log the exact prompt, model response, JSON parse position, selected model
+settings, and tool inputs/results. These logs can contain conversation text and
+document excerpts, so keep them private and turn tracing off when the diagnosis
+is complete. Provider API keys and authorization headers are never logged.
+
+```bash
+DISCOURSELENS_DEBUG=on docker compose -f compose.web.yaml up -d --build web
+docker compose -f compose.web.yaml logs -f web
+```
+
+Afterward, restart with `DISCOURSELENS_DEBUG=off` (or unset the variable) so
+normal chat content is not written to diagnostic logs.
+
 ### Local embeddings with Ollama
 
 For an evaluation without a paid embedding API, start the CPU-limited Ollama

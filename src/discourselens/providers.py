@@ -202,16 +202,24 @@ def _classify_provider_http_error(
         "cohere-embeddings": "Cohere",
         "voyage-embeddings": "Voyage",
     }.get(provider_id, provider_id)
-    if error.code in {401, 403, *additional_auth_codes}:
-        raise AuthenticationError(f"{provider_label} rejected the configured credential") from None
     codes = _provider_error_codes(error)
     if error.code == 402 or {
         "insufficient_quota",
         "quota_exceeded",
+        "insufficient_credit",
+        "insufficient_credits",
+        "insufficient_balance",
+        "credit_balance_too_low",
+        "insufficient_funds",
+        "no_credits",
+        "payment_required",
+        "usage_limit_exceeded",
         "billing_hard_limit_reached",
         "billing_not_active",
     }.intersection(codes):
         raise QuotaError(f"{provider_id} {operation} quota or billing limit was reached") from None
+    if error.code in {401, 403, *additional_auth_codes}:
+        raise AuthenticationError(f"{provider_label} rejected the configured credential") from None
     if error.code == 429 or {
         "rate_limit_exceeded",
         "rate_limit_error",
