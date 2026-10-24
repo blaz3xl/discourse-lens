@@ -504,7 +504,26 @@ def _run_chat_agent(
             for acknowledgement in ("provider_egress_acknowledged", "query_egress_acknowledged"):
                 if isinstance(properties, dict) and acknowledgement in properties:
                     arguments[acknowledgement] = True
-        _validate_agent_tool_scope(project, arguments, revision_ids)
+        try:
+            _validate_agent_tool_scope(project, arguments, revision_ids)
+        except HTTPException as exc:
+            if exc.status_code != 422:
+                raise
+            _record_chat_activity(
+                f"{tool_name} pidió fuentes fuera del alcance; el asistente corregirá la operación."
+            )
+            tool_results.append(
+                {
+                    "tool_name": tool_name,
+                    "arguments": arguments,
+                    "result": (
+                        "La operación no se ejecutó porque las revisiones solicitadas excedían "
+                        "las fuentes autorizadas para esta conversación. Reintenta usando "
+                        "únicamente los revision_ids autorizados al inicio del turno."
+                    ),
+                }
+            )
+            continue
         try:
             result = asyncio.run(
                 mcp_server.call_tool_for_project(project_root, tool_name, arguments)
