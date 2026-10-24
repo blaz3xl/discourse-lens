@@ -65,6 +65,7 @@ _CHAT_AGENT_RESULT_CHARS = 24_000
 _CHAT_STREAM_HEARTBEAT_SECONDS = 15.0
 _CHAT_ACTIVITY_LOCK = threading.Lock()
 _CHAT_ACTIVITY: dict[str, dict[str, object]] = {}
+_CHAT_BACKGROUND_TASKS: set[asyncio.Task[Any]] = set()
 _LOGGER = logging.getLogger(__name__)
 _ACTIVE_CHAT_CONVERSATION: ContextVar[str | None] = ContextVar(
     "discourselens_active_chat_conversation", default=None
@@ -457,6 +458,60 @@ def _chat_generation_error_message(error: Exception) -> str:
     return "El asistente no pudo preparar una respuesta válida; vuelve a intentarlo."
 
 
+def _chat_tool_label(tool_name: str) -> str:
+    labels = {
+        "ask_question": "aplicar el enfoque de análisis",
+        "get_analysis_report": "reunir los hallazgos del análisis",
+        "get_analysis_run": "consultar el análisis guardado",
+        "get_context": "comprobar el contexto de un pasaje",
+        "get_document_revision": "leer la estructura de la fuente",
+        "get_finding_sources": "verificar las fuentes de un hallazgo",
+        "get_page": "leer una página de la fuente",
+        "get_paragraph": "leer un párrafo de la fuente",
+        "run_agency_candidates": "examinar agencia y responsabilidad",
+        "run_controlled_cda_review": "revisar la estructura discursiva",
+        "run_counterevidence_lexical": "buscar evidencia que contraste la lectura",
+        "run_evidence_extraction": "extraer evidencias del texto",
+        "run_quote_attribution_candidates": "comprobar la atribución de las citas",
+        "run_scope_question_candidates": "buscar pasajes pertinentes para la pregunta",
+        "run_social_actor_candidates": "identificar los actores sociales",
+        "run_textual_descriptors": "describir rasgos del texto",
+        "search_hybrid_with_preset": "buscar pasajes por significado y términos",
+        "search_lexical": "buscar términos en la fuente",
+        "search_semantic_with_preset": "buscar pasajes semánticamente relacionados",
+        "search_semantic_passages": "buscar pasajes semánticamente relacionados",
+        "validate_finding": "validar un hallazgo",
+    }
+    return labels.get(tool_name, "consultar una herramienta de investigación")
+
+
+def _chat_tool_error_detail(error: Exception) -> str:
+    detail = str(error).strip() or _chat_generation_error_message(error)
+    detail = re.sub(
+        r"(?i)(api[_ -]?key|authorization|access[_ -]?token|password|secret)(\s*[:=]\s*)[^\s,;]+",
+        r"\1\2[oculto]",
+        detail,
+    )
+    detail = re.sub(r"(?i)\bBearer\s+[^\s,;]+", "Bearer [oculto]", detail)
+    detail = " ".join(detail.split())
+    return f"{type(error).__name__}: {detail[:280]}"
+
+
+def _chat_failure_message(error: Exception) -> str:
+    if isinstance(error, HTTPException):
+        return _chat_http_error_message(error.detail, error.status_code)
+    return _chat_generation_error_message(error)
+
+
+def _chat_failure_detail(error: Exception) -> str:
+    if isinstance(error, HTTPException):
+        message = _chat_http_error_message(error.detail, error.status_code)
+        return f"HTTP {error.status_code} · {message}"[:320]
+    if isinstance(error, (ProjectError, ModelProviderError, ModelResponseError, ValueError, TypeError)):
+        return _chat_tool_error_detail(error)
+    return type(error).__name__
+
+
 def _chat_http_error_message(detail: object, status_code: int) -> str:
     """Extract a safe readable message from structured HTTP error details."""
     if isinstance(detail, str) and detail.strip():
@@ -551,7 +606,10 @@ def _run_chat_agent(
         )
     )
     for _ in range(_CHAT_AGENT_MAX_TOOL_CALLS + 1):
-        _record_chat_activity("El modelo está decidiendo el siguiente paso.")
+        step_number = len(tool_results) + 1
+        _record_chat_activity(
+            "El modelo está preparando el siguiente paso.", step=step_number
+        )
         remaining_tool_calls = _CHAT_AGENT_MAX_TOOL_CALLS - len(tool_results)
         if remaining_tool_calls:
             tool_budget_guidance = (
@@ -703,7 +761,10 @@ def _run_chat_agent(
             final_answer = _replace_internal_citation_ids(
                 plan["final_answer"].strip(), id_citations
             )
-            _record_chat_activity("El modelo está redactando la respuesta y explicando el enfoque.")
+            _record_chat_activity(
+                "El modelo está redactando la respuesta y explicando el enfoque.",
+                step=step_number,
+            )
             break
         if (
             not isinstance(plan, dict)
@@ -718,7 +779,10 @@ def _run_chat_agent(
                 detail="El asistente eligió una operación no disponible; vuelve a intentarlo.",
             )
         if len(tool_results) >= _CHAT_AGENT_MAX_TOOL_CALLS:
-            _record_chat_activity("El asistente está preparando una síntesis de los resultados disponibles.")
+            _record_chat_activity(
+                "El modelo está sintetizando los resultados disponibles.",
+                step=step_number,
+            )
             finalization_format_guidance = (
                 "Return kind=final_answer, leave tool_name and arguments_json empty, and put "
                 "the complete response in final_answer."
@@ -800,10 +864,10 @@ def _run_chat_agent(
         arguments = dict(plan["arguments"])
         _chat_debug("chat.tool.request", tool_name=tool_name, arguments=arguments)
         framework = arguments.get("framework_id") if tool_name == "ask_question" else None
-        action = f"Llamando a {tool_name}"
+        action = f"Paso {step_number}: {_chat_tool_label(tool_name)}."
         if isinstance(framework, str):
-            action += f" · enfoque {framework}"
-        _record_chat_activity(action)
+            action += f" Enfoque: {framework}."
+        _record_chat_activity(action, step=step_number)
         if tool_name == "ask_question":
             arguments["preset_name"] = preset_name
         uses_embedding_provider = tool_name in _CHAT_EMBEDDING_TOOLS or (
@@ -829,18 +893,22 @@ def _run_chat_agent(
         except HTTPException as exc:
             if exc.status_code != 422:
                 raise
+            detail = (
+                "La operación pidió revisiones que no están incluidas en las fuentes activas."
+            )
             _record_chat_activity(
-                f"{tool_name} pidió fuentes fuera del alcance; el asistente corregirá la operación."
+                f"Paso {step_number}: la operación pidió fuentes fuera del alcance; "
+                "el modelo probará otra vía.",
+                step=step_number,
+                level="warning",
+                detail=detail,
             )
             tool_results.append(
                 {
                     "tool_name": tool_name,
                     "arguments": arguments,
-                    "result": (
-                        "La operación no se ejecutó porque las revisiones solicitadas excedían "
-                        "las fuentes autorizadas para esta conversación. Reintenta usando "
-                        "únicamente los revision_ids autorizados al inicio del turno."
-                    ),
+                    "result": detail
+                    + " Usa únicamente las fuentes activas de esta conversación.",
                 }
             )
             continue
@@ -849,25 +917,45 @@ def _run_chat_agent(
                 mcp_server.call_tool_for_project(project_root, tool_name, arguments)
             )
         except Exception as exc:  # noqa: BLE001 - MCP tools expose heterogeneous runtime errors.
+            detail = _chat_tool_error_detail(exc)
+            label = _chat_tool_label(tool_name)
             _chat_debug(
                 "chat.tool.error", tool_name=tool_name, error_type=type(exc).__name__, error=str(exc)
             )
-            _record_chat_activity(f"{tool_name} no pudo completar la operación; el asistente revisará otra opción.")
+            _record_chat_activity(
+                f"Paso {step_number}: no se pudo {label}; el modelo continuará con otra vía.",
+                step=step_number,
+                level="warning",
+                detail=detail,
+            )
             tool_results.append(
                 {
                     "tool_name": tool_name,
                     "arguments": arguments,
-                    "result": "La herramienta no pudo completar esta operación. Elige otra vía o explica qué dato falta.",
+                    "result": f"Falló la operación para {label}. Detalle: {detail}",
                 }
             )
             continue
         if getattr(result, "is_error", getattr(result, "isError", False)):
-            _record_chat_activity(f"{tool_name} rechazó la operación; el asistente revisará sus requisitos.")
+            content = getattr(result, "content", [])
+            error_text = "\n".join(
+                item.text
+                for item in content
+                if isinstance(getattr(item, "text", None), str)
+            ).strip()
+            detail = error_text[:320] or "La herramienta devolvió un error sin detalle."
+            label = _chat_tool_label(tool_name)
+            _record_chat_activity(
+                f"Paso {step_number}: no se pudo {label}; el modelo revisará otra opción.",
+                step=step_number,
+                level="warning",
+                detail=detail,
+            )
             tool_results.append(
                 {
                     "tool_name": tool_name,
                     "arguments": arguments,
-                    "result": "La herramienta rechazó la petición; revisa sus requisitos e inténtalo con argumentos válidos.",
+                    "result": f"La operación para {label} fue rechazada. Detalle: {detail}",
                 }
             )
             continue
@@ -925,7 +1013,13 @@ def _run_chat_agent(
     }
 
 
-def _record_chat_activity(event: str) -> None:
+def _record_chat_activity(
+    event: str,
+    *,
+    step: int | None = None,
+    level: str = "info",
+    detail: str | None = None,
+) -> None:
     """Publish a concise observable event without exposing model chain-of-thought."""
     conversation_id = _ACTIVE_CHAT_CONVERSATION.get()
     if conversation_id is None:
@@ -939,7 +1033,16 @@ def _record_chat_activity(event: str) -> None:
         if not isinstance(events, list):
             events = []
             activity["events"] = events
-        events.append({"at": timestamp, "text": event})
+        record: dict[str, object] = {"at": timestamp, "text": event, "level": level}
+        if step is not None:
+            record["step"] = step
+            activity["step"] = step
+            metadata = activity.get("metadata")
+            if isinstance(metadata, dict):
+                metadata["step"] = step
+        if detail:
+            record["detail"] = detail
+        events.append(record)
         del events[:-40]
         activity["updated_at"] = timestamp
 
@@ -953,9 +1056,13 @@ def _begin_chat_activity(
     conversation_id: str,
     *,
     metadata: dict[str, object],
-) -> None:
+    question: str,
+) -> bool:
     timestamp = int(time.time())
     with _CHAT_ACTIVITY_LOCK:
+        active = _CHAT_ACTIVITY.get(conversation_id)
+        if active and active.get("state") == "running":
+            return False
         expired = [
             key
             for key, value in _CHAT_ACTIVITY.items()
@@ -972,12 +1079,24 @@ def _begin_chat_activity(
         _CHAT_ACTIVITY[conversation_id] = {
             "state": "running",
             "metadata": metadata,
-            "events": [{"at": timestamp, "text": "El asistente está preparando el análisis."}],
+            "question": question,
+            "started_at": timestamp,
+            "step": 0,
+            "events": [
+                {"at": timestamp, "text": "Solicitud recibida.", "level": "info", "step": 0}
+            ],
             "updated_at": timestamp,
         }
+        return True
 
 
-def _finish_chat_activity(conversation_id: str, state: str, message: str | None = None) -> None:
+def _finish_chat_activity(
+    conversation_id: str,
+    state: str,
+    message: str | None = None,
+    *,
+    detail: str | None = None,
+) -> None:
     timestamp = int(time.time())
     with _CHAT_ACTIVITY_LOCK:
         activity = _CHAT_ACTIVITY.get(conversation_id)
@@ -985,10 +1104,25 @@ def _finish_chat_activity(conversation_id: str, state: str, message: str | None 
             return
         activity["state"] = state
         activity["updated_at"] = timestamp
+        activity["duration_seconds"] = max(
+            0, timestamp - int(activity.get("started_at", timestamp))
+        )
         if message:
+            if state == "error":
+                activity["error"] = message
+                if detail:
+                    activity["error_detail"] = detail
             events = activity.get("events")
             if isinstance(events, list):
-                events.append({"at": timestamp, "text": message})
+                event: dict[str, object] = {
+                    "at": timestamp,
+                    "text": message,
+                    "level": "error" if state == "error" else "success",
+                    "step": activity.get("step", 0),
+                }
+                if detail:
+                    event["detail"] = detail
+                events.append(event)
 
 _INDEX_HTML = r"""<!doctype html>
 <html lang="es">
@@ -1491,10 +1625,6 @@ _INDEX_HTML = r"""<!doctype html>
     .upload-progress-description{margin:15px 0 0;color:#68766c;font-size:12px;line-height:1.55}
     @media(max-width:520px){.upload-progress-content{padding:20px}.upload-progress-heading{margin-bottom:16px}.upload-progress-heading h2{font-size:18px}}
 
-    .chat-sources-row{display:flex;align-items:center;flex:0 0 auto;min-height:30px;padding:0 clamp(14px,3vw,32px) 5px}
-    .chat-sources-link{color:#35664c;font-size:11px;font-weight:600;line-height:1.4;text-decoration:underline;text-underline-offset:3px}
-    .chat-sources-link:hover{color:#244a37;text-decoration-thickness:2px}
-    .chat-sources-link:focus-visible{outline:2px solid #4d795b;outline-offset:3px;border-radius:3px}
     .source-toggle{appearance:none;-webkit-appearance:none;position:relative;display:inline-block;flex:0 0 38px;width:38px;height:22px;margin:0;border:1px solid #aeb9af;border-radius:999px;background:#e3e8e2;cursor:pointer;transition:background-color .15s ease,border-color .15s ease}
     .source-toggle::before{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;box-shadow:0 1px 2px #18281a40;transition:transform .15s ease}
     .source-toggle:checked{border-color:#3f7950;background:#3f7950}
@@ -1528,6 +1658,34 @@ _INDEX_HTML = r"""<!doctype html>
       .app-authenticated .chat-topline{justify-content:space-between}
       .app-authenticated .chat-top-actions{width:auto;flex:0 0 auto;justify-content:flex-end}
     }
+    .assistant-activity-current{display:flex;align-items:flex-start;gap:8px;margin:0 0 9px;padding:9px 10px;border-radius:8px;background:#edf3ec;color:#294633;font-size:12px;font-weight:600;line-height:1.45;overflow-wrap:anywhere}
+    .assistant-activity-current:before{content:"";flex:0 0 8px;width:8px;height:8px;margin-top:4px;border-radius:50%;background:#4e7c52;animation:chat-progress-pulse 1.2s ease-in-out infinite}
+    .assistant-activity[data-state="complete"] .assistant-activity-current:before{animation:none;background:#42734b}
+    .assistant-activity[data-state="error"] .assistant-activity-current{background:#fff0ed;color:#8f342b}
+    .assistant-activity[data-state="error"] .assistant-activity-current:before{animation:none;background:#bd4d3e}
+    .assistant-activity-clock{font-variant-numeric:tabular-nums}
+    .assistant-activity-event{overflow-wrap:anywhere}
+    .assistant-activity-event[data-level="warning"]{color:#845522}
+    .assistant-activity-event[data-level="error"]{color:#963b32;font-weight:650}
+    .assistant-activity-error-detail{margin-top:5px;color:#80513d}
+    .assistant-activity-error-detail>summary{cursor:pointer;font-size:10px;font-weight:650}
+    .assistant-activity-error-detail pre{max-height:180px;margin:6px 0 0;padding:8px;border-radius:7px;background:#f5f1ec;color:#5f4b40;font:11px/1.45 ui-monospace,monospace;white-space:pre-wrap;overflow-wrap:anywhere}
+    .chat-failure{display:grid;justify-items:start;gap:8px;margin-top:10px;padding:10px 11px;border-radius:9px;background:#fff0ed;color:#873b31;font-size:12px;line-height:1.5;overflow-wrap:anywhere}
+    .chat-failure-detail{margin:0}
+    .chat-failure-detail>summary{cursor:pointer;font-weight:650}
+    .chat-failure-detail pre{max-height:180px;max-width:100%;margin:6px 0 0;padding:8px;border-radius:7px;background:#f7f2ef;color:#5f4b40;font:11px/1.45 ui-monospace,monospace;white-space:pre-wrap;overflow:auto;overflow-wrap:anywhere}
+    .chat-retry-button{min-height:34px;padding:7px 11px;border:1px solid #c68a7e;border-radius:8px;background:#fff;color:#78372e;font-size:11px;font-weight:650}
+    .chat-retry-button:hover{background:#fbe2dd}
+    @keyframes chat-progress-pulse{50%{opacity:.4;transform:scale(.78)}}
+    @media(prefers-reduced-motion:reduce){.assistant-activity-current:before{animation:none}}
+
+    .chat-input-row .chat-model-controls{display:flex!important;align-items:center;gap:5px;min-width:0;max-width:230px;margin:0;padding:0;flex:0 1 auto}
+    .chat-model-controls .chat-control{display:block;min-width:0;max-width:none;margin:0}.chat-model-controls .chat-control>span{display:none!important}
+    .chat-input-row .chat-model-controls .chat-model-control{width:132px;flex:0 0 132px}.chat-input-row .chat-model-controls .chat-reasoning-control{width:88px;flex:0 0 88px}
+    .chat-input-row .chat-model-controls #chatPreset{display:block;width:132px!important;min-width:0;max-width:132px!important;height:30px;min-height:30px!important;padding:4px 23px 4px 8px;border:1px solid #dce4dc;border-radius:8px;background:#f8faf7;color:#2c4033;font-size:11px;line-height:1.2;text-overflow:ellipsis}
+    .chat-input-row .chat-model-controls #chatReasoning{display:block;width:88px!important;min-width:0;max-width:88px!important;height:30px;min-height:30px!important;padding:4px 22px 4px 8px;border:1px solid #dce4dc;border-radius:8px;background:#f8faf7;color:#2c4033;font-size:11px;line-height:1.2;text-overflow:ellipsis}.chat-model-controls select:focus-visible{outline:2px solid #4d795b;outline-offset:2px}
+    .chat-input #chatStatus{font-size:10px;line-height:1.35;min-height:12px;margin:2px 0 0;text-align:left}
+    @media(max-width:560px){.chat-input-row .chat-model-controls{gap:4px;max-width:198px}.chat-input-row .chat-model-controls .chat-model-control{width:120px;flex-basis:120px}.chat-input-row .chat-model-controls .chat-reasoning-control{width:74px;flex-basis:74px}.chat-input-row .chat-model-controls #chatPreset{width:120px!important;max-width:120px!important}.chat-input-row .chat-model-controls #chatReasoning{width:74px!important;max-width:74px!important}.chat-input-row{gap:6px}.composer-plus{width:36px;min-width:36px;justify-content:center;padding:0}.composer-plus>span:not(#attachmentPlaceholder){display:none}.chat-input #sendChat{padding:8px 11px}}
 </style>
 </head>
 <body>
@@ -1544,9 +1702,9 @@ _INDEX_HTML = r"""<!doctype html>
       <div class="panel"><h3>Buscar en una revisión</h3><div class="row" style="margin-bottom:10px"><input id="query" class="input" type="search" placeholder="Frase literal" aria-label="Frase literal"><button id="search" class="button">Buscar</button></div><div class="subtle">La búsqueda queda limitada a la revisión seleccionada.</div><div class="status" id="searchStatus" role="status"></div><div id="results" class="results"></div></div>
       <div class="panel"><h3>Conectar un proveedor de IA</h3><p class="subtle">Elige el proveedor, pega tu clave API y pulsa «Conectar y cargar modelos». La clave se cifra en tu proyecto y no vuelve a mostrarse. DeepSeek, OpenAI, Anthropic (Claude), Gemini y otros proveedores compatibles están disponibles.</p><div class="row"><select id="credentialProvider" class="input" aria-label="Proveedor"></select><input id="credentialAlias" class="input" maxlength="64" value="personal" placeholder="Nombre de la clave, por ejemplo personal" aria-label="Nombre de la credencial"><input id="credentialValue" class="input" type="password" autocomplete="new-password" placeholder="API key" aria-label="API key"></div><div class="row" style="margin-top:10px"><input id="credentialEndpoint" class="input" maxlength="2048" type="url" placeholder="Endpoint (solo para servidores compatibles)" aria-label="Endpoint del proveedor"><button id="saveCredential" class="button">Conectar y cargar modelos</button></div><div class="status" id="credentialStatus" role="status"></div><div id="credentialList" class="results"></div></div>
       <div class="panel"><h3>Modelos de chat y embeddings</h3><p class="subtle">Elige qué función tendrá el modelo. Cada lista muestra solo modelos compatibles con esa función; el pensamiento se configura únicamente para modelos de chat.</p><div class="row"><select id="presetPurpose" class="input" aria-label="Función del modelo"><option value="chat">Chat</option><option value="embeddings">Embeddings y vectores</option><option value="both">Chat y embeddings</option></select><select id="presetProvider" class="input" aria-label="Proveedor del modelo"></select><input id="presetCredentialAlias" class="input" list="credentialAliases" maxlength="64" placeholder="Alias de credencial" aria-label="Alias de credencial"><datalist id="credentialAliases"></datalist><button id="discoverModels" class="button secondary">Cargar modelos</button></div><p id="presetPurposeHelp" class="subtle" style="margin:8px 0 0">Para chat se muestran modelos de generación de texto.</p><div class="row" style="margin-top:10px"><select id="presetModelSelect" class="input" aria-label="Modelos disponibles"><option value="">Carga modelos o escribe el ID manualmente</option></select><input id="presetModel" class="input" maxlength="256" placeholder="ID exacto del modelo" aria-label="ID exacto del modelo"></div><details id="modelAdvanced" class="model-advanced" style="margin-top:10px"><summary class="subtle">Opciones avanzadas de pensamiento</summary><div class="row reasoning-settings" style="margin:8px 0"><input id="presetReasoning" class="input" maxlength="64" placeholder="Esfuerzo predeterminado" aria-label="Esfuerzo de razonamiento"><select id="presetReasoningMode" class="input" aria-label="Modo de razonamiento"><option value="">Sin configurar</option><option value="adaptive">Adaptativo</option><option value="manual">Manual</option><option value="enabled">Activado</option><option value="disabled">Desactivado</option></select><input id="presetBudget" class="input" type="number" min="1" max="1000000" placeholder="Presupuesto de tokens" aria-label="Presupuesto de razonamiento"></div><p class="subtle">Configura estos valores solo si el proveedor los documenta para el modelo seleccionado. Si no, DiscourseLens usará su configuración predeterminada.</p><input id="presetAvailableReasoning" class="input" maxlength="128" placeholder="Esfuerzos admitidos: low, medium, high" aria-label="Esfuerzos de razonamiento disponibles"><input id="presetAvailableModes" class="input" maxlength="64" placeholder="Modos admitidos: adaptive, manual" aria-label="Modos de razonamiento disponibles" style="margin-top:8px;width:100%"></details><button id="savePreset" class="button" style="margin-top:10px">Guardar modelo</button><div class="status" id="presetStatus" role="status"></div><div id="presetList" class="results"></div></div>
-      <div class="panel chat-card"><h3>Chat de análisis con evidencia</h3><p class="subtle chat-explain">Pregunta a una skill lingüística sobre revisiones seleccionadas. Cada turno recupera evidencia dentro del alcance fijado, conserva análisis y citas en el proyecto e incluye el contexto previo como material no confiable. No hace afirmaciones sobre el corpus entero a partir de resultados dirigidos.</p><div class="row chat-history-controls"><select id="chatConversation" class="input" aria-label="Conversación guardada"></select><button id="loadConversation" class="button secondary">Abrir</button><button id="refreshConversations" class="button secondary" aria-label="Actualizar conversaciones" title="Actualizar conversaciones"><svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M5.6 9a7 7 0 0 1 11.8-2L20 12M4 12l2.6 5a7 7 0 0 0 11.8-2"/></svg></button></div><div class="row chat-controls"><label class="chat-control source-scope-control"><span>FUENTE ACTIVA</span><select id="chatRevision" class="input" aria-label="Revisión para chat"></select></label><label class="chat-control"><span>MODELO</span><select id="chatPreset" class="input" aria-label="Modelo de chat"></select></label><label class="chat-control"><span>PENSAMIENTO</span><select id="chatReasoning" class="input" aria-label="Nivel de razonamiento"><option value="">Predeterminado</option></select></label><span id="reasoningNote" class="chat-reasoning-note">El modelo elegido determina las opciones de razonamiento disponibles.</span></div><details class="chat-advanced"><summary>Opciones de recuperación</summary><div class="row" style="margin-top:10px"><select id="chatRetrieval" class="input" aria-label="Modo de recuperación"><option value="lexical">Recuperación léxica</option><option value="hybrid">Recuperación híbrida con embeddings</option></select><select id="chatEmbeddingPreset" class="input" aria-label="Modelo de embeddings"></select><select id="chatVectorArtifact" class="input" aria-label="Índice vectorial para chat"></select><button id="createConversation" class="button hidden">Nueva conversación</button></div></details><div id="chatMessages" class="results chat-messages" role="log" aria-label="Mensajes de la conversación" aria-live="polite" aria-relevant="additions text"></div><div class="chat-sources-row"><a id="chatSourcesLink" class="chat-sources-link" href="#" aria-haspopup="dialog" aria-controls="libraryDialog">Fuentes: 0/0</a></div><div class="chat-input"><textarea id="chatQuestion" class="input" maxlength="8000" placeholder="Escribe o pega texto y pregunta; también puedes adjuntar fuentes…" aria-label="Pregunta para el asistente"></textarea><div class="chat-input-row"><div class="composer-attach"><label id="composerPlus" class="composer-plus" for="file" title="Adjuntar un documento"><b aria-hidden="true"><svg class="icon" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></b><span>Adjuntar</span><span id="attachmentPlaceholder"></span></label></div><button id="sendChat" class="button" aria-label="Enviar mensaje" title="Enviar mensaje"><svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M12 19V5m0 0L6 11m6-6 6 6"/></svg></button></div><div class="status" id="chatStatus" role="status">Enter envía · Shift+Enter añade una línea</div></div></div>
+      <div class="panel chat-card"><h3>Chat de análisis con evidencia</h3><p class="subtle chat-explain">Pregunta a una skill lingüística sobre revisiones seleccionadas. Cada turno recupera evidencia dentro del alcance fijado, conserva análisis y citas en el proyecto e incluye el contexto previo como material no confiable. No hace afirmaciones sobre el corpus entero a partir de resultados dirigidos.</p><div class="row chat-history-controls"><select id="chatConversation" class="input" aria-label="Conversación guardada"></select><button id="loadConversation" class="button secondary">Abrir</button><button id="refreshConversations" class="button secondary" aria-label="Actualizar conversaciones" title="Actualizar conversaciones"><svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M5.6 9a7 7 0 0 1 11.8-2L20 12M4 12l2.6 5a7 7 0 0 0 11.8-2"/></svg></button></div><div class="row chat-controls"><label class="chat-control source-scope-control"><span>FUENTE ACTIVA</span><select id="chatRevision" class="input" aria-label="Revisión para chat"></select></label><label class="chat-control"><span>MODELO</span><select id="chatPreset" class="input" aria-label="Modelo de chat"></select></label><label class="chat-control"><span>PENSAMIENTO</span><select id="chatReasoning" class="input" aria-label="Nivel de razonamiento"><option value="">Predeterminado</option></select></label><span id="reasoningNote" class="chat-reasoning-note">El modelo elegido determina las opciones de razonamiento disponibles.</span></div><details class="chat-advanced"><summary>Opciones de recuperación</summary><div class="row" style="margin-top:10px"><select id="chatRetrieval" class="input" aria-label="Modo de recuperación"><option value="lexical">Recuperación léxica</option><option value="hybrid">Recuperación híbrida con embeddings</option></select><select id="chatEmbeddingPreset" class="input" aria-label="Modelo de embeddings"></select><select id="chatVectorArtifact" class="input" aria-label="Índice vectorial para chat"></select><button id="createConversation" class="button hidden">Nueva conversación</button></div></details><div id="chatMessages" class="results chat-messages" role="log" aria-label="Mensajes de la conversación" aria-live="polite" aria-relevant="additions text"></div><div class="chat-input"><textarea id="chatQuestion" class="input" maxlength="8000" placeholder="Escribe o pega texto y pregunta; también puedes adjuntar fuentes…" aria-label="Pregunta para el asistente"></textarea><div class="chat-input-row"><div class="composer-attach"><label id="composerPlus" class="composer-plus" for="file" title="Adjuntar un documento"><b aria-hidden="true"><svg class="icon" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></b><span>Adjuntar</span><span id="attachmentPlaceholder"></span></label></div><button id="sendChat" class="button" aria-label="Enviar mensaje" title="Enviar mensaje"><svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M12 19V5m0 0L6 11m6-6 6 6"/></svg></button></div><div class="status" id="chatStatus" role="status">Enter envía · Shift+Enter salto de línea</div></div></div>
       <div class="panel"><h3>Frecuencia de palabras</h3><button id="frequency" class="button secondary">Calcular frecuencias</button><div class="status" id="frequencyStatus" role="status"></div><div id="frequencyResults" class="results"></div></div>
-      <div class="panel"><h3>Recuperación semántica (RAG)</h3><p class="subtle">Los vectores se guardan en este proyecto Docker. Al construir el índice se envían los párrafos al proveedor indicado; al buscar se envía la consulta para calcular su embedding. El siguiente paso muestra proveedor y endpoint antes del envío.</p><div class="row"><select id="embeddingPreset" class="input" aria-label="Modelo de embeddings"></select><button id="previewEmbedding" class="button secondary">Revisar destino</button></div><div class="status" id="embeddingPreviewStatus" role="status"></div><label class="subtle"><input id="embeddingEgress" type="checkbox"> Confirmo el envío de los párrafos al proveedor para crear el índice.</label><div class="row" style="margin-top:10px"><button id="buildEmbedding" class="button">Crear índice local</button><select id="vectorArtifact" class="input" aria-label="Índice vectorial"><option value="">Selecciona un índice disponible</option></select></div><div class="status" id="embeddingStatus" role="status"></div><div class="row"><input id="semanticQuery" class="input" type="search" maxlength="2000" placeholder="Pregunta o describe un pasaje" aria-label="Consulta semántica"><button id="semanticSearch" class="button secondary">Buscar pasajes</button></div><label class="subtle"><input id="queryEgress" type="checkbox"> Confirmo que la consulta se enviará al proveedor de embeddings.</label><div class="status" id="semanticStatus" role="status"></div><div id="semanticResults" class="results"></div></div>
+      <div class="panel"><h3>Recuperación semántica (RAG)</h3><p class="subtle">Los vectores se guardan en este proyecto Docker. Al construir el índice se envían los párrafos al proveedor indicado; al buscar se envía la consulta para calcular su embedding. Puedes revisar el destino antes; al crear el índice se envían los párrafos al proveedor de embeddings elegido.</p><div class="row"><select id="embeddingPreset" class="input" aria-label="Modelo de embeddings"></select><button id="previewEmbedding" class="button secondary">Revisar destino</button></div><div class="status" id="embeddingPreviewStatus" role="status"></div><div class="row" style="margin-top:10px"><button id="buildEmbedding" class="button">Crear índice local</button><select id="vectorArtifact" class="input" aria-label="Índice vectorial"><option value="">Selecciona un índice disponible</option></select></div><div class="status" id="embeddingStatus" role="status"></div><div class="row"><input id="semanticQuery" class="input" type="search" maxlength="2000" placeholder="Pregunta o describe un pasaje" aria-label="Consulta semántica"><button id="semanticSearch" class="button secondary">Buscar pasajes</button></div><div class="status" id="semanticStatus" role="status"></div><div id="semanticResults" class="results"></div></div>
       <div class="panel"><h3>N-gramas</h3><div class="row"><select id="ngramSize" class="input" aria-label="Tamaño del n-grama"><option value="2">Bigramas</option><option value="3">Trigramas</option><option value="4">4-gramas</option></select><button id="ngrams" class="button secondary">Calcular n-gramas</button></div><div class="status" id="ngramStatus" role="status"></div><div id="ngramResults" class="results"></div></div>
       <div class="panel"><h3>Colocaciones</h3><div class="row"><input id="collocationTerm" class="input" type="search" placeholder="Un término" aria-label="Término de colocación"><input id="collocationWindow" class="input" type="number" min="1" max="100" value="5" aria-label="Ventana de colocación"><button id="collocations" class="button secondary">Calcular colocaciones</button></div><div class="status" id="collocationStatus" role="status"></div><div id="collocationResults" class="results"></div></div>
       <div class="panel"><h3>Comparar grupos de documentos</h3><p class="subtle">Compara frecuencias normalizadas o keyness entre dos selecciones. La comparación usa las revisiones seleccionadas y conserva sus alcances.</p><div class="row"><label class="input">Grupo A<select id="leftRevisions" class="input" multiple size="5" aria-label="Revisiones del grupo A"></select></label><label class="input">Grupo B<select id="rightRevisions" class="input" multiple size="5" aria-label="Revisiones del grupo B"></select></label></div><div class="row" style="margin-top:10px"><select id="comparisonMetric" class="input" aria-label="Métrica de comparación"><option value="frequency">Frecuencia normalizada</option><option value="keyness">Keyness (log-likelihood)</option></select><button id="compare" class="button">Comparar</button></div><div class="status" id="comparisonStatus" role="status"></div><div id="comparisonResults" class="results"></div></div>
@@ -1556,7 +1714,7 @@ _INDEX_HTML = r"""<!doctype html>
     </div></section>
   </main><footer class="wrap footer"><span>DiscourseLens · investigación reproducible</span><span>CLI · Python SDK · MCP · Web</span></footer>
 <script>
-(()=>{const $=id=>document.getElementById(id),tokenKey='discourselens-web-token';let token=sessionStorage.getItem(tokenKey)||'',availableRevisionIds=[],selectedSourceIds=new Set(),activeConversationRevisionIds=[],currentResearchProjectId='',researchProjects=[],conversationItems=[],modelPresetItems=[],sourceSelectionInitialized=false;const status=(id,msg)=>$(id).textContent=msg;function updateSourceCounts(){const count=`${selectedSourceIds.size}/${availableRevisionIds.length}`;$('libraryCount').textContent=count;$('chatSourcesLink').textContent=`Fuentes: ${count}`} async function api(path,options={}){const headers={...options.headers};if(token)headers.Authorization=`Bearer ${token}`;const response=await fetch(path,{...options,credentials:'same-origin',headers});if(!response.ok){let message='No se pudo completar la operación';try{message=(await response.json()).detail||message}catch{}throw new Error(message)}return response.status===204?null:response.json()}
+(()=>{const $=id=>document.getElementById(id),tokenKey='discourselens-web-token';let token=sessionStorage.getItem(tokenKey)||'',availableRevisionIds=[],selectedSourceIds=new Set(),activeConversationRevisionIds=[],currentResearchProjectId='',researchProjects=[],conversationItems=[],modelPresetItems=[],sourceSelectionInitialized=false;const status=(id,msg)=>$(id).textContent=msg;function updateSourceCounts(){const count=`${selectedSourceIds.size}/${availableRevisionIds.length}`;$('libraryCount').textContent=count} async function api(path,options={}){const headers={...options.headers};if(token)headers.Authorization=`Bearer ${token}`;const response=await fetch(path,{...options,credentials:'same-origin',headers});if(!response.ok){let message='No se pudo completar la operación';try{message=(await response.json()).detail||message}catch{}throw new Error(message)}return response.status===204?null:response.json()}
 function updateProfileIdentity(user){const email=typeof user?.email==='string'?user.email.trim():'';const rawName=typeof user?.name==='string'?user.name.trim():'';const name=rawName||email.split('@')[0]||'Perfil';const parts=name.split(/\s+/).filter(Boolean),first=Array.from(parts[0]||'P')[0]||'P',last=Array.from(parts.at(-1)||'')[0]||'';const initials=(parts.length>1?first+last:Array.from(parts[0]||'P').slice(0,2).join('')).toLocaleUpperCase();$('profileAvatar').textContent=initials;$('profileName').textContent=name;const button=$('openSettingsSide');button.setAttribute('aria-label','Perfil de '+name+' y ajustes');button.title=name+' · Perfil y ajustes'}
 function assembleWorkspace(){
   const source=$('appSource'),chat=source.querySelector('#chatMessages').closest('.panel');
@@ -1564,7 +1722,10 @@ function assembleWorkspace(){
   const history=chat.querySelector('#chatConversation').closest('.row');
   const file=source.querySelector('#file'),upload=source.querySelector('#upload'),uploadStatus=source.querySelector('#uploadStatus');
   const attachRow=file.closest('.row'),importPanel=file.closest('.panel');
-  const modelControls=chat.querySelector('.chat-controls'),modelControl=modelControls.querySelector('#chatPreset').closest('label'),reasoningControl=modelControls.querySelector('#chatReasoning').closest('label'),reasoningNote=modelControls.querySelector('#reasoningNote'),modelBar=document.createElement('div');modelBar.className='chat-model-controls';modelBar.append(modelControl,reasoningControl,reasoningNote);chat.querySelector('.chat-input-row').prepend(modelBar);modelControls.classList.add('chat-source-config');
+  const modelControls=chat.querySelector('.chat-controls'),modelControl=modelControls.querySelector('#chatPreset').closest('label'),reasoningControl=modelControls.querySelector('#chatReasoning').closest('label'),modelBar=document.createElement('div');
+  modelBar.className='chat-model-controls';modelControl.classList.add('chat-model-control');reasoningControl.classList.add('chat-reasoning-control');
+  $('chatPreset').title='Modelo de chat';$('chatReasoning').title='Pensamiento del modelo';
+  modelBar.append(modelControl,reasoningControl);chat.querySelector('.chat-input-row').prepend(modelBar);modelControls.classList.add('chat-source-config');
   $('chatHost').append(chat);$('libraryHost').append(docs);
   $('attachmentPlaceholder').append(file,upload);upload.classList.add('hidden');attachRow.remove();importPanel.remove();chat.querySelector('.chat-input').append(uploadStatus);
   chat.querySelector('h3').textContent='Conversación';
@@ -1621,7 +1782,7 @@ function assembleWorkspace(){
   history.classList.add('chat-history-controls','hidden');chat.querySelector('#chatRevision').closest('.row').classList.add('chat-controls');
   chat.querySelector('#chatRetrieval').closest('.row').classList.add('chat-advanced-row');
 }
-assembleWorkspace();const openLibrary=()=>{if(!$('libraryDialog').open)$('libraryDialog').showModal()};$('openLibrary').addEventListener('click',openLibrary);$('chatSourcesLink').addEventListener('click',event=>{event.preventDefault();openLibrary()});$('closeLibrary').addEventListener('click',()=>$('libraryDialog').close());$('libraryDialog').addEventListener('click',event=>{if(event.target===$('libraryDialog'))$('libraryDialog').close()});$('closeResearchTools').addEventListener('click',()=>$('researchToolsDialog').close());$('researchToolsDialog').addEventListener('click',event=>{if(event.target===$('researchToolsDialog'))$('researchToolsDialog').close()});for(const button of $('researchToolShortcuts').querySelectorAll('[data-tool-target]')){button.setAttribute('aria-controls','researchToolsDialog');button.addEventListener('click',()=>openResearchTools(button.dataset.toolTarget))}updateProfileIdentity(null);
+assembleWorkspace();const openLibrary=()=>{if(!$('libraryDialog').open)$('libraryDialog').showModal()};$('openLibrary').addEventListener('click',openLibrary);$('closeLibrary').addEventListener('click',()=>$('libraryDialog').close());$('libraryDialog').addEventListener('click',event=>{if(event.target===$('libraryDialog'))$('libraryDialog').close()});$('closeResearchTools').addEventListener('click',()=>$('researchToolsDialog').close());$('researchToolsDialog').addEventListener('click',event=>{if(event.target===$('researchToolsDialog'))$('researchToolsDialog').close()});for(const button of $('researchToolShortcuts').querySelectorAll('[data-tool-target]')){button.setAttribute('aria-controls','researchToolsDialog');button.addEventListener('click',()=>openResearchTools(button.dataset.toolTarget))}updateProfileIdentity(null);
 function connected(value){document.body.classList.toggle('app-authenticated',value);$('connect').classList.toggle('hidden',value);$('app').classList.toggle('hidden',!value);if(value)loadConnectorStatus()}
 function setChatHeading(title='¿Qué quieres investigar?'){const heading=document.querySelector('.chat-topline h2'),line=document.querySelector('.chat-topline');if(heading)heading.textContent=title;line?.classList.toggle('conversation-open',title!=='¿Qué quieres investigar?')}
 function openSettings(section='credentialProvider'){const dialog=$('settingsDialog');if(!dialog.open)dialog.showModal();setTimeout(()=>$(section)?.scrollIntoView({behavior:'smooth',block:'center'}),50)}
@@ -1765,7 +1926,7 @@ async function loadPresets(preferredChatPreset='',preferredEmbeddingPreset=''){
       if(item.can_embeddings)addDefaultAction('embeddings',item.is_default_embedding,'embedding-default','embeddings');
       remove.className='button secondary preset-remove';remove.type='button';remove.textContent='Eliminar modelo';remove.setAttribute('aria-label',`Eliminar el modelo guardado ${item.model}`);remove.addEventListener('click',async()=>{if(!window.confirm(`¿Eliminar el modelo ${item.model}? Las conversaciones existentes se conservarán. Si era el predeterminado, se elegirá otro modelo disponible.`))return;remove.disabled=true;try{await api(`/api/model-presets/${encodeURIComponent(item.id)}`,{method:'DELETE'});status('presetStatus',`Modelo ${item.model} eliminado.`);await loadPresets()}catch(error){remove.disabled=false;status('presetStatus',error.message)}});
       actions.append(remove);row.append(summary,actions);root.append(row);
-      if(item.can_chat)chatPreset.add(new Option(`${providerLabels[item.provider_id]||item.provider_id} · ${item.model}${thinking}${item.is_default?' · predeterminado':''}`,item.name));
+      if(item.can_chat)chatPreset.add(new Option(`${item.model} · ${providerLabels[item.provider_id]||item.provider_id}${item.is_default?' · predeterminado':''}`,item.name));
       if(item.can_embeddings){const label=`${providerLabels[item.provider_id]||item.provider_id} · ${item.model}${item.is_default_embedding?' · predeterminado':''}`;chatEmbeddingPreset.add(new Option(label,item.name));ragEmbeddingPreset.add(new Option(label,item.name))}
     }
     if(!chatItems.length)chatPreset.add(new Option('Conecta un proveedor y guarda un modelo de chat',''));
@@ -1777,10 +1938,10 @@ async function loadPresets(preferredChatPreset='',preferredEmbeddingPreset=''){
     $('setupNotice').classList.toggle('hidden',chatItems.length>0);
     if(!data.items.length){const empty=document.createElement('div');empty.className='subtle';empty.textContent='Conecta una clave y guarda un modelo para empezar a conversar o crear índices vectoriales.';root.append(empty)}
     await loadChatReasoning();await loadVectorIndexes();await loadChatVectorIndexes();$('chatRetrieval').dispatchEvent(new Event('change'));
-    status('chatStatus',chatPreset.value?'Enter envía · Shift+Enter añade una línea':'Configura un proveedor y guarda un modelo de chat para activar el chat.');
+    status('chatStatus',chatPreset.value?'Enter envía · Shift+Enter salto de línea':'Configura un proveedor y guarda un modelo de chat para activar el chat.');
   }catch(error){status('presetStatus',error.message)}
 }
-async function loadChatReasoning(){const select=$('chatReasoning');select.replaceChildren(new Option('Usar configuración predeterminada',''));const name=$('chatPreset').value;if(!name){select.disabled=true;$('reasoningNote').textContent='Conecta un proveedor y guarda un modelo para activar el chat.';return}try{const data=await api('/api/model-presets/capabilities',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name})});const efforts=Array.isArray(data.reasoning_efforts)?data.reasoning_efforts:[];for(const effort of efforts){select.add(new Option(`Esfuerzo ${effort}`,`effort:${effort}`))}const modes=Array.isArray(data.reasoning_modes)?data.reasoning_modes:[];for(const mode of modes){if(mode==='manual'&&!data.reasoning_budget_tokens)continue;select.add(new Option(`Modo ${mode}`,`mode:${mode}`))}select.disabled=!efforts.length&&!modes.length;if(typeof data.saved_reasoning==='string'&&Array.from(select.options).some(option=>option.value===data.saved_reasoning))select.value=data.saved_reasoning;$('reasoningNote').textContent=data.allowed?(efforts.length||modes.length?`Opciones disponibles para este modelo: ${[...efforts,...modes].join(', ')}${data.current_reasoning?` · predeterminado: ${data.current_reasoning}`:''}${data.saved_reasoning?` · preferencia guardada: ${data.saved_reasoning.replace(':',' ')}`:''}`:'Este modelo no declara controles de pensamiento; se usa su configuración predeterminada.'):data.message||'Revisa la configuración de este modelo.'}catch(e){select.disabled=true;$('reasoningNote').textContent=e.message}}
+async function loadChatReasoning(){const select=$('chatReasoning');select.replaceChildren(new Option('Usar configuración predeterminada',''));const name=$('chatPreset').value;if(!name){select.disabled=true;$('reasoningNote').textContent='Conecta un proveedor y guarda un modelo para activar el chat.';return}try{const data=await api('/api/model-presets/capabilities',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name})});const efforts=Array.isArray(data.reasoning_efforts)?data.reasoning_efforts:[];for(const effort of efforts)select.add(new Option(effort,`effort:${effort}`));const modes=Array.isArray(data.reasoning_modes)?data.reasoning_modes:[];for(const mode of modes){if(mode==='manual'&&!data.reasoning_budget_tokens)continue;select.add(new Option(mode,`mode:${mode}`))}select.disabled=!efforts.length&&!modes.length;if(typeof data.saved_reasoning==='string'&&Array.from(select.options).some(option=>option.value===data.saved_reasoning))select.value=data.saved_reasoning;$('reasoningNote').textContent=data.allowed?(efforts.length||modes.length?`Opciones disponibles para este modelo: ${[...efforts,...modes].join(', ')}${data.current_reasoning?` · predeterminado: ${data.current_reasoning}`:''}${data.saved_reasoning?` · preferencia guardada: ${data.saved_reasoning.replace(':',' ')}`:''}`:'Este modelo no declara controles de pensamiento; se usa su configuración predeterminada.'):data.message||'Revisa la configuración de este modelo.'}catch(e){select.disabled=true;$('reasoningNote').textContent=e.message}}
 async function loadChatVectorIndexes(){
   const revision=$('chatRevision').value,select=$('chatVectorArtifact'),preset=modelPresetByName($('chatEmbeddingPreset').value),hybridOption=$('chatRetrieval').querySelector('option[value="hybrid"]');
   select.replaceChildren();
@@ -1807,8 +1968,13 @@ async function deleteConversationFromTree(item,button){const conversationId=Stri
 async function loadConversations(selected='',open=true){const select=$('chatConversation'),current=selected||select.value;select.replaceChildren(new Option('Nueva conversación',''));const data=await api('/api/conversations');conversationItems=data.items;for(const item of conversationItems){const option=document.createElement('option');option.value=item.id;option.textContent=item.title;select.append(option)}const active=conversationItems.some(item=>String(item.id)===String(current))?current:(conversationItems[0]?.id||'');if(active){select.value=active;if(open)await openConversation(active);setChatHeading(conversationItems.find(item=>String(item.id)===String(active))?.title||'Conversación');renderConversationTree(conversationItems,active)}else{select.value='';renderConversationTree(conversationItems,'');if(current){activeConversationRevisionIds=[];$('chatPreset').disabled=false;setChatHeading();renderChatMessages([])}}}
 function appendActivityDetails(container,activity,toolResults=[],live=false){
   const details=document.createElement('details'),summary=document.createElement('summary'),body=document.createElement('div');
-  details.className='assistant-activity';summary.textContent=live&&activity.state==='running'?'DiscourseLens está trabajando…':'Actividad de DiscourseLens';body.className='assistant-activity-body';
-  const metadata=activity.metadata||{};
+  details.className='assistant-activity';details.dataset.state=activity.state||'idle';summary.textContent=activity.state==='running'?'Análisis en curso':activity.state==='error'?'Análisis detenido':'Actividad del análisis';body.className='assistant-activity-body';
+  const events=Array.isArray(activity.events)?activity.events:[],latest=events.at(-1),current=document.createElement('div'),metadata=activity.metadata||{};
+  current.className='assistant-activity-current';current.setAttribute('role','status');current.setAttribute('aria-live','polite');
+  current.textContent=activity.state==='error'?(activity.error||latest?.text||'El análisis no pudo terminar.'):(latest?.text||'Preparando el análisis.');body.append(current);
+  const elapsed=document.createElement('div');elapsed.className='assistant-activity-meta assistant-activity-clock';
+  const elapsedSeconds=Math.max(0,Math.floor(activity.state==='running'?Date.now()/1000-Number(activity.started_at||0):Number(activity.duration_seconds??metadata.duration_seconds??0))),elapsedLabel=`${String(Math.floor(elapsedSeconds/60)).padStart(2,'0')}:${String(elapsedSeconds%60).padStart(2,'0')}`;
+  elapsed.textContent=`${activity.state==='running'?'En curso':'Duración'} · paso ${Number(activity.step||latest?.step||0)} · ${elapsedLabel}`;body.append(elapsed);
   const modelLine=document.createElement('div');modelLine.className='assistant-activity-meta';
   const modelName=[metadata.provider_id,metadata.model].filter(Boolean).join(' / ');
   modelLine.textContent=`Modelo: ${modelName||'no disponible'}`;body.append(modelLine);
@@ -1820,9 +1986,9 @@ function appendActivityDetails(container,activity,toolResults=[],live=false){
   const methods=Array.isArray(metadata.selected_framework_ids)?metadata.selected_framework_ids:[];
   if(methods.length){const methodLine=document.createElement('div');methodLine.className='assistant-activity-meta';methodLine.textContent=`Enfoque(s): ${methods.join(' + ')}`;body.append(methodLine)}
   const toolNames=Array.isArray(metadata.tools)?metadata.tools:toolResults.map(item=>item.tool_name).filter(Boolean);
-  if(Array.isArray(metadata.embedding_artifact_ids)&&metadata.embedding_artifact_ids.length){const indexLine=document.createElement('div');indexLine.className='assistant-activity-meta';indexLine.textContent=`Índice(s) de embeddings: ${metadata.embedding_artifact_ids.join(' · ')}`;body.append(indexLine)}if(toolNames.length){const toolsLine=document.createElement('div');toolsLine.className='assistant-activity-meta';toolsLine.textContent=`Herramientas: ${toolNames.join(' · ')}`;body.append(toolsLine)}
-  const events=Array.isArray(activity.events)?activity.events:[];
-  if(events.length){const list=document.createElement('ol');list.className='assistant-activity-events';for(const event of events){const item=document.createElement('li');item.textContent=event.text||String(event);list.append(item)}body.append(list)}
+  if(Array.isArray(metadata.embedding_artifact_ids)&&metadata.embedding_artifact_ids.length){const indexLine=document.createElement('div');indexLine.className='assistant-activity-meta';indexLine.textContent=`Índice(s) de embeddings: ${metadata.embedding_artifact_ids.length}`;body.append(indexLine)}if(toolNames.length){const labels={ask_question:'método de análisis',get_analysis_report:'informe de hallazgos',get_analysis_run:'análisis guardado',get_context:'contexto de pasaje',get_document_revision:'estructura de la fuente',get_finding_sources:'fuentes de hallazgos',get_page:'página de la fuente',get_paragraph:'párrafo de la fuente',run_agency_candidates:'agencia y responsabilidad',run_controlled_cda_review:'revisión discursiva',run_counterevidence_lexical:'contraste de evidencias',run_evidence_extraction:'extracción de evidencias',run_quote_attribution_candidates:'atribución de citas',run_scope_question_candidates:'búsqueda de pasajes',run_social_actor_candidates:'actores sociales',run_textual_descriptors:'rasgos textuales',search_hybrid_with_preset:'búsqueda híbrida',search_lexical:'búsqueda léxica',search_semantic_with_preset:'búsqueda semántica',search_semantic_passages:'búsqueda semántica',validate_finding:'validación de hallazgos'};const toolsLine=document.createElement('div');toolsLine.className='assistant-activity-meta';toolsLine.textContent=`Operaciones: ${[...new Set(toolNames)].map(name=>labels[name]||'herramienta de investigación').join(' · ')}`;body.append(toolsLine)}
+  if(events.length){const list=document.createElement('ol');list.className='assistant-activity-events';for(const event of events){const item=document.createElement('li');item.className='assistant-activity-event';item.dataset.level=event.level||'info';item.textContent=event.text||String(event);if(event.detail){const detail=document.createElement('details'),summary=document.createElement('summary'),pre=document.createElement('pre');detail.className='assistant-activity-error-detail';summary.textContent='Ver detalle';pre.textContent=event.detail;detail.append(summary,pre);item.append(detail)}list.append(item)}body.append(list)}
+  if(activity.state==='error'&&activity.error_detail){const detail=document.createElement('details'),detailSummary=document.createElement('summary'),pre=document.createElement('pre');detail.className='assistant-activity-error-detail';detailSummary.textContent='Ver detalle técnico del error';pre.textContent=activity.error_detail;detail.append(detailSummary,pre);body.append(detail)}
   for(const item of toolResults){if(typeof item.result!=='string')continue;const resultDetails=document.createElement('details'),resultTitle=document.createElement('summary'),result=document.createElement('pre');resultDetails.className='assistant-tool-result';resultTitle.textContent=`${item.tool_name||'Herramienta'} · ver argumentos y resultado`;resultDetails.append(resultTitle);if(item.arguments&&typeof item.arguments==='object'){const args=document.createElement('pre');args.textContent=JSON.stringify(item.arguments,null,2);resultDetails.append(args)}result.textContent=item.result;resultDetails.append(result);body.append(resultDetails)}
   details.append(summary,body);if(live)details.open=true;container.append(details);return details
 }
@@ -1837,10 +2003,68 @@ function renderChatMessages(items){
   }
 }
 let activityPollTimer=null;
+function setChatGenerationBusy(busy){$('sendChat').disabled=Boolean(busy);$('chatQuestion').disabled=false;$('file').disabled=Boolean(busy);$('composerPlus').setAttribute('aria-disabled',String(Boolean(busy)))}
+function appendPendingTurn(activity){const question=typeof activity.question==='string'?activity.question.trim():'';if(!question)return;const root=$('chatMessages'),last=root.lastElementChild,lastUserText=last?.classList.contains('chat-message-user')?last.querySelector('.message-body')?.textContent:'';if(lastUserText!==question)appendOptimisticMessage('user',question);if(!document.querySelector('#liveAssistantMessage'))appendOptimisticMessage('assistant','')}
 function renderLiveActivity(activity){if(activity.state==='idle')return;const root=$('chatMessages'),parent=$('liveAssistantMessage')||root,previous=$('liveActivity');if(previous)previous.remove();const details=appendActivityDetails(parent,activity,[],true);details.id='liveActivity';details.open=true;requestAnimationFrame(()=>{root.scrollTop=root.scrollHeight})}
-function startActivityPolling(conversationId){if(activityPollTimer)clearInterval(activityPollTimer);renderLiveActivity({state:'running',metadata:{preset_name:$('chatPreset').value,reasoning:$('chatReasoning').selectedOptions[0]?.textContent,retrieval_mode:$('chatRetrieval').value},events:[{text:'Conectando con el modelo y preparando las herramientas.'}]});const poll=async()=>{try{const activity=await api(`/api/conversations/${encodeURIComponent(conversationId)}/activity`);renderLiveActivity(activity)}catch{}};activityPollTimer=setInterval(poll,1100);void poll()}
+async function refreshDetachedConversation(conversationId,activity){if($('chatConversation').value!==conversationId)return;const data=await api(`/api/conversations/${encodeURIComponent(conversationId)}/messages`);if($('chatConversation').value!==conversationId)return;renderChatMessages(data.items);if(activity.state==='error'&&activity.question){const last=data.items.at(-1),alreadyShown=last?.role==='user'&&last.content?.text===activity.question;if(!alreadyShown)appendOptimisticMessage('user',activity.question);const body=appendOptimisticMessage('assistant',''),card=body.parentElement;appendChatFailure(card,{message:activity.error||'El análisis no pudo terminar.',detail:activity.error_detail||'',question:activity.question,step:activity.step});appendActivityDetails(card,activity,[],false).open=true;status('chatStatus',activity.error||'El análisis no pudo terminar. Revisa el detalle y vuelve a intentarlo.')}else status('chatStatus','Respuesta completada.');setChatGenerationBusy(false)}
+function startActivityPolling(conversationId,{resumed=false,question=''}={}){
+  if(activityPollTimer)clearInterval(activityPollTimer);
+  renderLiveActivity({state:'running',started_at:Date.now()/1000,metadata:{preset_name:$('chatPreset').value,provider_id:modelPresetByName($('chatPreset').value)?.provider_id,model:modelPresetByName($('chatPreset').value)?.model,reasoning:$('chatReasoning').selectedOptions[0]?.textContent,retrieval_mode:$('chatRetrieval').value},events:[{text:'Conectando con el modelo y preparando las herramientas.',level:'info',step:0}]});
+  let settled=false,idlePolls=0;
+  const poll=async()=>{
+    try{
+      const activity=await api(`/api/conversations/${encodeURIComponent(conversationId)}/activity`);renderLiveActivity(activity);
+      if(activity.state==='idle')idlePolls+=1;else idlePolls=0;
+      if(resumed&&activity.state==='idle'&&idlePolls>=8&&!settled){settled=true;stopActivityPolling();const live=$('liveActivity');if(live)live.remove();if(question){const body=appendOptimisticMessage('assistant','');appendChatFailure(body.parentElement,{message:'No aparece un análisis activo en el servidor. Comprueba la conexión y vuelve a intentarlo.',question})}setChatGenerationBusy(false);status('chatStatus','No se ha encontrado un análisis activo. Puedes volver a enviar la pregunta.');return}
+      if(resumed&&activity.state!=='running'&&activity.state!=='idle'&&!settled){settled=true;stopActivityPolling();await refreshDetachedConversation(conversationId,activity)}
+    }catch(error){if(resumed)status('chatStatus','No se pudo actualizar el estado; el análisis puede seguir en curso. La conversación se volverá a consultar al abrirla.')}
+  };
+  activityPollTimer=setInterval(poll,1200);void poll();
+}
 function stopActivityPolling(){if(activityPollTimer){clearInterval(activityPollTimer);activityPollTimer=null}}
-async function openConversation(id=$('chatConversation').value){if(!id)return;try{const data=await api(`/api/conversations/${encodeURIComponent(id)}/messages`);renderChatMessages(data.items);requestAnimationFrame(()=>{const messages=$('chatMessages');messages.scrollTop=messages.scrollHeight});activeConversationRevisionIds=Array.isArray(data.conversation.revision_ids)?data.conversation.revision_ids:[];if(data.conversation.research_project_id&&data.conversation.research_project_id!==currentResearchProjectId){currentResearchProjectId=data.conversation.research_project_id;$('researchProject').value=currentResearchProjectId;sourceSelectionInitialized=false}selectedSourceIds=new Set(activeConversationRevisionIds);$('chatRevision').value=data.conversation.revision_ids[0]||'';await loadDocs();$('chatPreset').value=data.conversation.preset_name;$('chatPreset').disabled=true;await loadChatReasoning();$('chatRetrieval').value=data.conversation.retrieval_mode;if(data.conversation.embedding_preset_name)$('chatEmbeddingPreset').value=data.conversation.embedding_preset_name;await loadChatVectorIndexes();if(data.conversation.embedding_artifact_ids?.length)$('chatVectorArtifact').value=data.conversation.embedding_artifact_ids[0];$('chatRetrieval').dispatchEvent(new Event('change'));status('chatStatus',`${data.items.length/2|0} turno(s) · conversación guardada con citas y análisis.`)}catch(e){status('chatStatus',e.message)}}
+async function openConversation(id=$('chatConversation').value){
+  if(!id)return;
+  stopActivityPolling();
+  try{
+    const data=await api(`/api/conversations/${encodeURIComponent(id)}/messages`);
+    renderChatMessages(data.items);
+    requestAnimationFrame(()=>{const messages=$('chatMessages');messages.scrollTop=messages.scrollHeight});
+    activeConversationRevisionIds=Array.isArray(data.conversation.revision_ids)?data.conversation.revision_ids:[];
+    if(data.conversation.research_project_id&&data.conversation.research_project_id!==currentResearchProjectId){currentResearchProjectId=data.conversation.research_project_id;$('researchProject').value=currentResearchProjectId;sourceSelectionInitialized=false}
+    selectedSourceIds=new Set(activeConversationRevisionIds);
+    $('chatRevision').value=data.conversation.revision_ids[0]||'';
+    await loadDocs();
+    $('chatPreset').value=data.conversation.preset_name;
+    $('chatPreset').disabled=true;
+    await loadChatReasoning();
+    $('chatRetrieval').value=data.conversation.retrieval_mode;
+    if(data.conversation.embedding_preset_name)$('chatEmbeddingPreset').value=data.conversation.embedding_preset_name;
+    await loadChatVectorIndexes();
+    if(data.conversation.embedding_artifact_ids?.length)$('chatVectorArtifact').value=data.conversation.embedding_artifact_ids[0];
+    $('chatRetrieval').dispatchEvent(new Event('change'));
+    const activity=await api(`/api/conversations/${encodeURIComponent(id)}/activity`);
+    if(activity.state==='running'){
+      appendPendingTurn(activity);
+      setChatGenerationBusy(true);
+      status('chatStatus','El análisis sigue en curso en el servidor. Puedes escribir otra pregunta; podrás enviarla cuando termine.');
+      startActivityPolling(id,{resumed:true,question:activity.question||''});
+    }else if(activity.state==='error'&&activity.question){
+      appendPendingTurn(activity);
+      const body=appendOptimisticMessage('assistant',''),card=body.parentElement;
+      appendChatFailure(card,{message:activity.error||'El análisis no pudo terminar.',detail:activity.error_detail||'',question:activity.question,step:activity.step});
+      appendActivityDetails(card,activity,[],false).open=true;
+      setChatGenerationBusy(false);
+      status('chatStatus',activity.error||'El análisis no pudo terminar. Revisa el detalle y vuelve a intentarlo.');
+    }else{
+      setChatGenerationBusy(false);
+      status('chatStatus',`${data.items.length/2|0} turno(s) · conversación guardada con citas y análisis.`);
+    }
+  }catch(error){
+    stopActivityPolling();
+    setChatGenerationBusy(false);
+    status('chatStatus',`No se pudo abrir la conversación: ${error.message}`);
+  }
+}
 let paragraphOffset=0,annotationOffset=0;
 async function loadCodebooks(selectedId=''){const select=$('codebookSelect');select.replaceChildren();const data=await api('/api/coding/codebooks');for(const item of data.items){const option=document.createElement('option');option.value=item.id;option.textContent=item.name;select.append(option)}if(selectedId)select.value=selectedId;await loadCodes()}
 async function loadCodes(){const select=$('codeSelect');select.replaceChildren();const codebookId=$('codebookSelect').value;if(!codebookId){const option=document.createElement('option');option.value='';option.textContent='Crea o selecciona un libro de códigos';select.append(option);return}const data=await api(`/api/coding/codebooks/${encodeURIComponent(codebookId)}/codes`);for(const item of data.items){const option=document.createElement('option');option.value=item.id;option.textContent=item.label;select.append(option)}if(!data.items.length){const option=document.createElement('option');option.value='';option.textContent='Crea el primer código';select.append(option)}}
@@ -1862,11 +2086,49 @@ $('presetProvider').addEventListener('change',loadProviderSettings);
 $('chatPreset').addEventListener('change',async()=>{const item=modelPresetByName($('chatPreset').value);if(item){try{await api(`/api/model-presets/${encodeURIComponent(item.id)}/default`,{method:'POST'});await loadPresets(item.name);status('chatStatus',`Modelo ${item.model} guardado en tu espacio.`)}catch(error){status('chatStatus',error.message)}}await loadChatReasoning()});$('chatReasoning').addEventListener('change',async()=>{const name=$('chatPreset').value;if(!name)return;try{await api('/api/chat-preferences/reasoning',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,reasoning:$('chatReasoning').value||null})});status('chatStatus','Preferencia de pensamiento guardada en tu espacio.')}catch(error){status('chatStatus',error.message)}});$('chatQuestion').addEventListener('input',()=>{const field=$('chatQuestion');field.style.height='auto';field.style.height=`${Math.min(field.scrollHeight,104)}px`;field.style.overflowY=field.scrollHeight>104?'auto':'hidden'});$('chatQuestion').addEventListener('keydown',event=>{if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();$('sendChat').click()}});$('chatRetrieval').addEventListener('change',event=>{if(event.isTrusted)$('chatRetrieval').dataset.manual='true';const hybrid=$('chatRetrieval').value==='hybrid';$('chatEmbeddingPreset').classList.toggle('hidden',!hybrid);$('chatVectorArtifact').classList.toggle('hidden',!hybrid)});$('chatEmbeddingPreset').addEventListener('change',loadChatVectorIndexes);$('embeddingPreset').addEventListener('change',async()=>{const preset=modelPresetByName($('embeddingPreset').value);if(!preset)return;try{const item=modelPresetItems.find(candidate=>candidate.name===preset.name);if(item)await api(`/api/model-presets/${encodeURIComponent(item.id)}/embedding-default`,{method:'POST'});await loadPresets('',preset.name);status('embeddingStatus',`${preset.model} será el modelo predeterminado para embeddings.`)}catch(error){status('embeddingStatus',error.message)}});
 $('createConversation').addEventListener('click',async()=>{const revision_ids=Array.from(selectedSourceIds),preset_name=$('chatPreset').value,framework_id='auto',retrieval_mode=$('chatRetrieval').value,payload={revision_ids,research_project_id:currentResearchProjectId,preset_name,framework_id,retrieval_mode};if(retrieval_mode==='hybrid'){payload.embedding_preset_name=$('chatEmbeddingPreset').value;payload.embedding_artifact_ids=$('chatVectorArtifact').value?[$('chatVectorArtifact').value]:[]}status('chatStatus','Creando conversación…');try{const data=await api('/api/conversations',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});await loadConversations(data.id);setChatHeading(data.title||'Conversación');renderChatMessages([]);status('chatStatus',`Conversación creada · ${framework_id} · ${preset_name}.`)}catch(e){status('chatStatus',e.message)}});
 $('loadConversation').addEventListener('click',()=>openConversation());$('refreshConversations').addEventListener('click',()=>loadConversations());function appendOptimisticMessage(role,text){const card=document.createElement('article'),body=document.createElement('p');card.className=`chat-message ${role==='user'?'chat-message-user':'chat-message-assistant'}`;body.className='message-body';if(role==='assistant'){card.id='liveAssistantMessage';const label=document.createElement('div');label.className='message-label';label.textContent='DiscourseLens';card.append(label);const waiting=document.createElement('span');waiting.className='assistant-writing';waiting.textContent='Preparando respuesta…';body.append(waiting)}else body.textContent=text;card.append(body);$('chatMessages').append(card);$('chatMessages').scrollTop=$('chatMessages').scrollHeight;return body}
+function appendChatFailure(card,{message,detail='',question='',step=0,keepPartial=false}){const body=card.querySelector('.message-body');if(body&&!keepPartial)body.textContent=step?`El análisis se detuvo en el paso ${step}.`:'';const panel=document.createElement('div');panel.className='chat-failure';panel.setAttribute('role','alert');const summary=document.createElement('span');summary.textContent=message;panel.append(summary);if(detail){const details=document.createElement('details'),title=document.createElement('summary'),pre=document.createElement('pre');details.className='chat-failure-detail';title.textContent='Ver detalle del error';pre.textContent=detail;details.append(title,pre);panel.append(details)}if(question){const retry=document.createElement('button');retry.type='button';retry.className='chat-retry-button';retry.textContent='Reintentar esta pregunta';retry.addEventListener('click',()=>{const draft=$('chatQuestion').value;restoreChatQuestion(question);$('sendChat').click();if(draft&&draft!==question)restoreChatQuestion(draft)});panel.append(retry)}card.append(panel)}
 function scrollChatIfPinned(){const root=$('chatMessages');if(root.scrollHeight-root.scrollTop-root.clientHeight<120)root.scrollTop=root.scrollHeight}
 function clearChatQuestion(){const field=$('chatQuestion');field.value='';field.style.height='auto';field.style.overflowY='hidden'}
 function restoreChatQuestion(value){const field=$('chatQuestion');field.value=value;field.style.height='auto';field.style.height=`${Math.min(field.scrollHeight,240)}px`;field.style.overflowY=field.scrollHeight>240?'auto':'hidden'}
 $('chatQuestion').addEventListener('input',()=>{const field=$('chatQuestion');field.style.height='auto';field.style.height=`${Math.min(field.scrollHeight,240)}px`});
-$('loadConversation').addEventListener('click',()=>openConversation());$('refreshConversations').addEventListener('click',()=>loadConversations());$('sendChat').addEventListener('click',async()=>{let conversation_id=$('chatConversation').value;const question=$('chatQuestion').value.trim();if(!question){status('chatStatus','Escribe una pregunta o pega el texto que quieres analizar.');return}if(!conversation_id&&!$('chatPreset').value){status('chatStatus','Configura un modelo de chat en Configuración y herramientas.');return}clearChatQuestion();if(!conversation_id){const revision_ids=Array.from(selectedSourceIds),preset_name=$('chatPreset').value,framework_id='auto',retrieval_mode=revision_ids.length?$('chatRetrieval').value:'lexical';try{const created=await api('/api/conversations',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({revision_ids,research_project_id:currentResearchProjectId,preset_name,framework_id,retrieval_mode,...(retrieval_mode==='hybrid'?{embedding_preset_name:$('chatEmbeddingPreset').value,embedding_artifact_ids:$('chatVectorArtifact').value?[$('chatVectorArtifact').value]:[]}:{})})});conversation_id=created.id;setChatHeading(created.title||question.slice(0,80));activeConversationRevisionIds=Array.isArray(created.revision_ids)?created.revision_ids:revision_ids;await loadConversations(conversation_id)}catch(e){restoreChatQuestion(question);status('chatStatus',e.message);return}}const payload={question,model_egress_acknowledged:true,embedding_egress_acknowledged:true,...($('chatReasoning').value.startsWith('effort:')?{reasoning:$('chatReasoning').value.slice(7)}:{}),...($('chatReasoning').value.startsWith('mode:')?{reasoning_mode:$('chatReasoning').value.slice(5)}:{})};$('sendChat').disabled=true;$('chatQuestion').disabled=true;$('file').disabled=true;$('composerPlus').setAttribute('aria-disabled','true');appendOptimisticMessage('user',question);const answer=appendOptimisticMessage('assistant','');const answerText=document.createTextNode('');answer.replaceChildren(answer.querySelector('.assistant-writing'));const cursor=document.createElement('span');cursor.className='assistant-cursor';cursor.setAttribute('aria-hidden','true');let received=false,finished=false;startActivityPolling(conversation_id);status('chatStatus','El asistente está preparando una respuesta…');try{const headers={'Content-Type':'application/json','Accept':'text/event-stream'};if(token)headers.Authorization=`Bearer ${token}`;const response=await fetch(`/api/conversations/${encodeURIComponent(conversation_id)}/messages/stream`,{method:'POST',credentials:'same-origin',headers,body:JSON.stringify(payload)});if(!response.ok){let message=`No se pudo completar la respuesta (HTTP ${response.status}).`;try{const failure=await response.json(),detail=failure.detail;if(typeof detail==='string'&&detail)message=detail;else if(detail&&typeof detail==='object'){for(const key of ['message','detail','error']){const value=detail[key];if(typeof value==='string'&&value){message=value;break}}}}catch{}throw new Error(message)}if(!response.body)throw new Error('El navegador no pudo abrir la respuesta en streaming.');const reader=response.body.getReader(),decoder=new TextDecoder();let buffer='';const handleEvent=eventText=>{const line=eventText.split('\n').find(item=>item.startsWith('data:'));if(!line)return;const event=JSON.parse(line.slice(5).trim());if(event.type==='delta'){if(!received){received=true;answer.replaceChildren(answerText,cursor)}answerText.textContent+=event.text;scrollChatIfPinned()}else if(event.type==='error')throw new Error(event.message||'No se pudo completar la respuesta.');else if(event.type==='complete')finished=true};while(true){const {value,done}=await reader.read();if(done)break;buffer+=decoder.decode(value,{stream:true});let boundary;while((boundary=buffer.indexOf('\n\n'))>=0){const eventText=buffer.slice(0,boundary);buffer=buffer.slice(boundary+2);handleEvent(eventText)}}buffer+=decoder.decode();if(buffer.trim())handleEvent(buffer);if(!finished)throw new Error('La conexión se cerró antes de terminar la respuesta.');stopActivityPolling();await loadConversations(conversation_id);status('chatStatus','Respuesta completada.')}catch(e){stopActivityPolling();const liveActivity=$('liveActivity');if(liveActivity)liveActivity.remove();if(!received){answer.textContent=e.message}else answer.replaceChildren(answerText);status('chatStatus',e.message);try{await loadConversations(conversation_id,false)}catch{}}finally{stopActivityPolling();$('chatQuestion').disabled=false;$('file').disabled=false;$('composerPlus').setAttribute('aria-disabled','false');$('sendChat').disabled=false;$('chatQuestion').focus()}});
+$('loadConversation').addEventListener('click',()=>openConversation());$('refreshConversations').addEventListener('click',()=>loadConversations());async function sendChatTurn(){
+  let conversationId=$('chatConversation').value;const question=$('chatQuestion').value.trim();
+  if(!question){status('chatStatus','Escribe una pregunta o pega el texto que quieres analizar.');return}
+  if(!conversationId&&!$('chatPreset').value){status('chatStatus','Configura un modelo de chat en Configuración y herramientas.');return}
+  clearChatQuestion();
+  if(!conversationId){
+    const revisionIds=Array.from(selectedSourceIds),presetName=$('chatPreset').value,retrievalMode=revisionIds.length?$('chatRetrieval').value:'lexical';
+    try{
+      const created=await api('/api/conversations',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({revision_ids:revisionIds,research_project_id:currentResearchProjectId,preset_name:presetName,framework_id:'auto',retrieval_mode:retrievalMode,...(retrievalMode==='hybrid'?{embedding_preset_name:$('chatEmbeddingPreset').value,embedding_artifact_ids:$('chatVectorArtifact').value?[$('chatVectorArtifact').value]:[]}:{})})});
+      conversationId=created.id;setChatHeading(created.title||question.slice(0,80));activeConversationRevisionIds=Array.isArray(created.revision_ids)?created.revision_ids:revisionIds;await loadConversations(conversationId);
+    }catch(error){restoreChatQuestion(question);status('chatStatus',error.message);return}
+  }
+  const reasoningValue=$('chatReasoning').value,payload={question,model_egress_acknowledged:true,embedding_egress_acknowledged:true,...(reasoningValue.startsWith('effort:')?{reasoning:reasoningValue.slice(7)}:{}),...(reasoningValue.startsWith('mode:')?{reasoning_mode:reasoningValue.slice(5)}:{})};
+  setChatGenerationBusy(true);appendOptimisticMessage('user',question);const answer=appendOptimisticMessage('assistant','');const answerText=document.createTextNode('');answer.replaceChildren(answer.querySelector('.assistant-writing'));const cursor=document.createElement('span');cursor.className='assistant-cursor';cursor.setAttribute('aria-hidden','true');let received=false,finished=false,detached=false,failureDetail='',failureStep=0;
+  startActivityPolling(conversationId,{question});status('chatStatus','El análisis sigue en el servidor. Puedes escribir otra pregunta; se enviará cuando termine.');
+  try{
+    const headers={'Content-Type':'application/json','Accept':'text/event-stream'};if(token)headers.Authorization=`Bearer ${token}`;
+    const response=await fetch(`/api/conversations/${encodeURIComponent(conversationId)}/messages/stream`,{method:'POST',credentials:'same-origin',headers,body:JSON.stringify(payload)});
+    if(!response.ok){let message=`No se pudo completar la respuesta (HTTP ${response.status}).`;let detail='';try{const failure=await response.json(),value=failure.detail;if(typeof value==='string'&&value)message=value;else if(value&&typeof value==='object'){for(const key of ['message','detail','error']){if(typeof value[key]==='string'&&value[key]){message=value[key];break}}detail=typeof value.detail==='string'?value.detail:''}}catch{}throw Object.assign(new Error(message),{failureDetail:detail||`HTTP ${response.status}`,failureStep:0})}
+    if(!response.body)throw Object.assign(new Error('El navegador no pudo abrir la respuesta en streaming.'),{failureDetail:'El navegador no devolvió un flujo de respuesta.'});
+    const reader=response.body.getReader(),decoder=new TextDecoder();let buffer='';
+    const handleEvent=eventText=>{const line=eventText.split('\n').find(item=>item.startsWith('data:'));if(!line)return;const event=JSON.parse(line.slice(5).trim());if(event.type==='delta'){if(!received){received=true;answer.replaceChildren(answerText,cursor)}answerText.textContent+=event.text;scrollChatIfPinned()}else if(event.type==='error'){failureDetail=event.detail||'';failureStep=Number(event.step||0);throw Object.assign(new Error(event.message||'No se pudo completar la respuesta.'),{failureDetail,failureStep})}else if(event.type==='complete')finished=true};
+    while(true){const {value,done}=await reader.read();if(done)break;buffer+=decoder.decode(value,{stream:true});let boundary;while((boundary=buffer.indexOf('\n\n'))>=0){const eventText=buffer.slice(0,boundary);buffer=buffer.slice(boundary+2);handleEvent(eventText)}}buffer+=decoder.decode();if(buffer.trim())handleEvent(buffer);if(!finished)throw Object.assign(new Error('La conexión se cerró antes de terminar la respuesta.'),{failureDetail:'El flujo de respuesta se interrumpió.'});
+    stopActivityPolling();await loadConversations(conversationId);status('chatStatus','Respuesta completada.');
+  }catch(error){
+    let activity=null,activityLookupFailed=false;try{activity=await api(`/api/conversations/${encodeURIComponent(conversationId)}/activity`)}catch{activityLookupFailed=true}
+    if(activity?.state==='idle'){await new Promise(resolve=>setTimeout(resolve,350));try{activity=await api(`/api/conversations/${encodeURIComponent(conversationId)}/activity`)}catch{activityLookupFailed=true}}
+    if(activity?.state==='running'||activityLookupFailed){detached=true;setChatGenerationBusy(true);if(activity?.state==='running')renderLiveActivity(activity);status('chatStatus','Se perdió la conexión con el progreso. El análisis sigue en el servidor; puedes volver a esta conversación mientras termina.');startActivityPolling(conversationId,{resumed:true,question});return}
+    stopActivityPolling();const live=$('liveActivity');if(live)live.remove();
+    if(received)answer.replaceChildren(answerText);const finalMessage=activity?.state==='error'&&activity.error?activity.error:(error.message||'No se pudo completar la respuesta.');const detail=activity?.state==='error'&&activity.error_detail?activity.error_detail:(error.failureDetail||failureDetail||'');const step=Number(activity?.step||error.failureStep||failureStep||0);const card=answer.parentElement;
+    appendChatFailure(card,{message:finalMessage,detail,question,step,keepPartial:received});if(activity?.state==='error')appendActivityDetails(card,activity,[],false).open=true;status('chatStatus',finalMessage);try{await loadConversations(conversationId,false)}catch{}
+  }finally{
+    if(!detached){stopActivityPolling();setChatGenerationBusy(false)}
+    $('chatQuestion').focus();
+  }
+}
+$('sendChat').addEventListener('click',sendChatTurn);
+
 function updateUploadProgress(file,index,total,percent,phase){
   const dialog=$('uploadProgressDialog'),progress=$('uploadProgressBar');
   if(!dialog.open)dialog.showModal();
@@ -1972,8 +2234,8 @@ $('uploadProgressDialog').addEventListener('cancel',event=>event.preventDefault(
 $('search').addEventListener('click',async()=>{const revision=$('revision').value,phrase=$('query').value.trim();if(!revision||!phrase){status('searchStatus','Selecciona una revisión e introduce una frase.');return}status('searchStatus','Buscando…');$('results').replaceChildren();try{const data=await api('/api/search',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({revision_id:revision,phrase,limit:50})});status('searchStatus',`${data.total_count} párrafo(s) con coincidencias en la revisión seleccionada.`);for(const row of data.rows){const box=document.createElement('article'),title=document.createElement('span'),text=document.createElement('p'),citation=document.createElement('div');box.className='result';title.className='tag';title.textContent=`Párrafo · ${row.paragraph_id.slice(0,8)}`;text.textContent=row.text;citation.className='subtle';citation.textContent=row.citation;box.append(title,text,citation);$('results').append(box)}}catch(e){status('searchStatus',e.message)}});
 $("frequency").addEventListener('click',async()=>{const revision=$('revision').value;if(!revision)return;status('frequencyStatus','Calculando…');$('frequencyResults').replaceChildren();try{const data=await api('/api/corpus/frequency',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({revision_id:revision,limit:50})});status('frequencyStatus',`${data.total_tokens} tokens · ${data.total_types} tipos · alcance ${data.scope_id.slice(0,8)}`);for(const row of data.rows){const item=document.createElement('article');item.className='result';item.textContent=`${row.token} — ${row.count}`;$('frequencyResults').append(item)}}catch(e){status('frequencyStatus',e.message)}});
 $("previewEmbedding").addEventListener('click',async()=>{const revision=$('revision').value,preset_name=$('embeddingPreset').value.trim();if(!revision||!preset_name){status('embeddingPreviewStatus','Selecciona una revisión y el modelo de embeddings.');return}status('embeddingPreviewStatus','Consultando configuración local…');try{const data=await api('/api/retrieval/preview',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({revision_id:revision,preset_name})});status('embeddingPreviewStatus',`${data.provider_id} · ${data.model} · ${data.endpoint} · ${data.total_paragraphs} párrafos${data.offline_mode?' · proyecto offline':''}${data.blocked_by_offline_mode?' · envío bloqueado':''}`)}catch(e){status('embeddingPreviewStatus',e.message)}});
-$("buildEmbedding").addEventListener('click',async()=>{const revision=$('revision').value,preset_name=$('embeddingPreset').value.trim();if(!revision||!preset_name){status('embeddingStatus','Selecciona una revisión y el modelo de embeddings.');return}if(!$('embeddingEgress').checked){status('embeddingStatus','Confirma el envío de los párrafos al proveedor antes de continuar.');return}status('embeddingStatus','Construyendo índice…');try{const data=await api('/api/retrieval/index',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({revision_id:revision,preset_name,provider_egress_acknowledged:true})});await loadVectorIndexes();await loadChatVectorIndexes();$('vectorArtifact').value=data.artifact_id;status('embeddingStatus',`Índice local creado: ${data.artifact_id} · ${data.provider_id}/${data.model}`)}catch(e){status('embeddingStatus',e.message)}});
-$("semanticSearch").addEventListener('click',async()=>{const revision=$('revision').value,preset_name=$('embeddingPreset').value.trim(),artifact_id=$('vectorArtifact').value,query=$('semanticQuery').value.trim();if(!revision||!preset_name||!artifact_id||!query){status('semanticStatus','Selecciona una revisión, modelo e índice, e introduce una consulta.');return}if(!$('queryEgress').checked){status('semanticStatus','Confirma el envío de la consulta al proveedor antes de continuar.');return}status('semanticStatus','Buscando pasajes…');$('semanticResults').replaceChildren();try{const data=await api('/api/retrieval/search',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({revision_id:revision,preset_name,artifact_id,query,query_egress_acknowledged:true,limit:10})});status('semanticStatus',`${data.rows.length} pasaje(s) · top‑k, no exhaustiva · alcance ${data.scope_id} · run ${data.retrieval_run_id}`);for(const row of data.rows){const item=document.createElement('article'),text=document.createElement('p'),meta=document.createElement('div');item.className='result';text.textContent=row.text;meta.className='subtle';meta.textContent=`${row.citation} · distancia ${row.distance}`;item.append(text,meta);$('semanticResults').append(item)}}catch(e){status('semanticStatus',e.message)}});
+$("buildEmbedding").addEventListener('click',async()=>{const revision=$('revision').value,preset_name=$('embeddingPreset').value.trim();if(!revision||!preset_name){status('embeddingStatus','Selecciona una revisión y el modelo de embeddings.');return}status('embeddingStatus','Construyendo índice…');try{const data=await api('/api/retrieval/index',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({revision_id:revision,preset_name,provider_egress_acknowledged:true})});await loadVectorIndexes();await loadChatVectorIndexes();$('vectorArtifact').value=data.artifact_id;status('embeddingStatus',`Índice local creado: ${data.artifact_id} · ${data.provider_id}/${data.model}`)}catch(e){status('embeddingStatus',e.message)}});
+$("semanticSearch").addEventListener('click',async()=>{const revision=$('revision').value,preset_name=$('embeddingPreset').value.trim(),artifact_id=$('vectorArtifact').value,query=$('semanticQuery').value.trim();if(!revision||!preset_name||!artifact_id||!query){status('semanticStatus','Selecciona una revisión, modelo e índice, e introduce una consulta.');return}status('semanticStatus','Buscando pasajes…');$('semanticResults').replaceChildren();try{const data=await api('/api/retrieval/search',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({revision_id:revision,preset_name,artifact_id,query,query_egress_acknowledged:true,limit:10})});status('semanticStatus',`${data.rows.length} pasaje(s) · top‑k, no exhaustiva · alcance ${data.scope_id} · run ${data.retrieval_run_id}`);for(const row of data.rows){const item=document.createElement('article'),text=document.createElement('p'),meta=document.createElement('div');item.className='result';text.textContent=row.text;meta.className='subtle';meta.textContent=`${row.citation} · distancia ${row.distance}`;item.append(text,meta);$('semanticResults').append(item)}}catch(e){status('semanticStatus',e.message)}});
 $("ngrams").addEventListener('click',async()=>{const revision=$('revision').value,size=Number($('ngramSize').value);if(!revision)return;status('ngramStatus','Calculando n-gramas…');$('ngramResults').replaceChildren();try{const data=await api('/api/corpus/ngrams',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({revision_id:revision,size,limit:50})});status('ngramStatus',`${data.total_values} secuencia(s) · alcance ${data.scope_id.slice(0,8)}`);for(const row of data.rows){const item=document.createElement('article');item.className='result';item.textContent=`${row.ngram} — ${row.count}`;$('ngramResults').append(item)}}catch(e){status('ngramStatus',e.message)}});
 $("collocations").addEventListener('click',async()=>{const revision=$('revision').value,query=$('collocationTerm').value.trim(),window=Number($('collocationWindow').value);if(!revision||!query)return;status('collocationStatus','Calculando colocaciones…');$('collocationResults').replaceChildren();try{const data=await api('/api/corpus/collocations',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({revision_id:revision,query,window,limit:50})});status('collocationStatus',`${data.total_values} colocación(es) · alcance ${data.scope_id.slice(0,8)}`);for(const row of data.rows){const item=document.createElement('article');item.className='result';item.textContent=`${row.term} — ${row.count}`;$('collocationResults').append(item)}}catch(e){status('collocationStatus',e.message)}});
 $("compare").addEventListener('click',async()=>{const left_revision_ids=Array.from($('leftRevisions').selectedOptions,option=>option.value),right_revision_ids=Array.from($('rightRevisions').selectedOptions,option=>option.value),metric=$('comparisonMetric').value;if(!left_revision_ids.length||!right_revision_ids.length){status('comparisonStatus','Selecciona al menos una revisión en cada grupo.');return}status('comparisonStatus','Comparando alcances…');$('comparisonResults').replaceChildren();try{const data=await api('/api/corpus/compare',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({left_revision_ids,right_revision_ids,metric,limit:50})});status('comparisonStatus',`${data.total_rows} términos · A ${data.left_scope_id.slice(0,8)} · B ${data.right_scope_id.slice(0,8)} · ${data.metric}`);for(const row of data.rows){const item=document.createElement('article');item.className='result';item.textContent=Object.entries(row).map(([key,value])=>`${key}: ${value}`).join(' · ');$('comparisonResults').append(item)}}catch(e){status('comparisonStatus',e.message)}});
@@ -2492,6 +2754,12 @@ def create_app(
             return {
                 "state": activity.get("state", "idle"),
                 "metadata": dict(metadata) if isinstance(metadata, dict) else {},
+                "question": activity.get("question", ""),
+                "error": activity.get("error", ""),
+                "error_detail": activity.get("error_detail", ""),
+                "started_at": activity.get("started_at", 0),
+                "duration_seconds": activity.get("duration_seconds", 0),
+                "step": activity.get("step", 0),
                 "events": [dict(item) for item in events if isinstance(item, dict)]
                 if isinstance(events, list)
                 else [],
@@ -2514,8 +2782,8 @@ def create_app(
                     conversation_id, title_from_prompt=question
                 )
                 if conversation["retrieval_mode"] == "hybrid" and payload.get(
-                    "embedding_egress_acknowledged"
-                ) is not True:
+                    "embedding_egress_acknowledged", True
+                ) is False:
                     raise HTTPException(
                         status_code=403,
                         detail="Confirma que la pregunta se enviará al proveedor de embeddings",
@@ -2587,6 +2855,7 @@ def create_app(
                 preset = project.model_preset(str(conversation["preset_name"]))
                 metadata: dict[str, object] = {
                     "preset_name": str(conversation["preset_name"]),
+                    "started_at": int(time.time()),
                     "provider_id": str(preset["provider_id"]),
                     "model": str(preset["model"]),
                     "reasoning": reasoning_override or preset["reasoning"],
@@ -2598,21 +2867,27 @@ def create_app(
                         list[str], conversation["embedding_artifact_ids"]
                     ),
                 }
-                _begin_chat_activity(conversation_id, metadata=metadata)
+                if not _begin_chat_activity(
+                    conversation_id, metadata=metadata, question=question
+                ):
+                    raise HTTPException(
+                        status_code=409,
+                        detail="Esta conversación ya está generando una respuesta. Puedes escribir otra pregunta y enviarla cuando termine.",
+                    )
                 activity_token = _ACTIVE_CHAT_CONVERSATION.set(conversation_id)
                 trace_token = _ACTIVE_CHAT_TRACE_ID.set(uuid.uuid4().hex)
-                _chat_debug(
-                    "chat.turn.started",
-                    question=question,
-                    provider=metadata["provider_id"],
-                    model=metadata["model"],
-                    reasoning=metadata["reasoning"],
-                    reasoning_mode=metadata["reasoning_mode"],
-                    retrieval_mode=metadata["retrieval_mode"],
-                    revision_ids=conversation["revision_ids"],
-                    conversation_context=context,
-                )
                 try:
+                    _chat_debug(
+                        "chat.turn.started",
+                        question=question,
+                        provider=metadata["provider_id"],
+                        model=metadata["model"],
+                        reasoning=metadata["reasoning"],
+                        reasoning_mode=metadata["reasoning_mode"],
+                        retrieval_mode=metadata["retrieval_mode"],
+                        revision_ids=conversation["revision_ids"],
+                        conversation_context=context,
+                    )
                     result = _run_chat_agent(
                         project,
                         _request_project_root(project_path),
@@ -2620,48 +2895,54 @@ def create_app(
                         question,
                         cast(list[str], conversation["revision_ids"]),
                         context,
-                        payload.get("embedding_egress_acknowledged") is True,
+                        payload.get("embedding_egress_acknowledged", True) is not False,
                         **agent_arguments,
                     )
+                    metadata["selected_framework_ids"] = result.get("selected_framework_ids", [])
+                    tool_results = result.get("tool_results", [])
+                    metadata["tools"] = (
+                        [
+                            item.get("tool_name")
+                            for item in tool_results
+                            if isinstance(item, dict)
+                            and isinstance(item.get("tool_name"), str)
+                        ]
+                        if isinstance(tool_results, list)
+                        else []
+                    )
+                    metadata["duration_seconds"] = max(
+                        0, int(time.time()) - int(metadata["started_at"])
+                    )
+                    result["activity"] = metadata
+                    user_message_id, assistant_message_id = project.append_chat_turn(
+                        conversation_id, question, result
+                    )
                 except Exception as exc:
+                    message = _chat_failure_message(exc)
                     _chat_debug(
                         "chat.turn.failed",
                         error_type=type(exc).__name__,
                         error=str(exc),
+                        user_message=message,
                     )
                     _finish_chat_activity(
                         conversation_id,
                         "error",
-                        "No se pudo terminar el análisis; revisa el mensaje de error del chat.",
+                        message,
+                        detail=_chat_failure_detail(exc),
                     )
                     raise
                 else:
                     _chat_debug("chat.turn.completed", result=result)
                     _finish_chat_activity(conversation_id, "complete", "Respuesta completada.")
+                    return {
+                        "user_message_id": user_message_id,
+                        "assistant_message_id": assistant_message_id,
+                        "result": result,
+                    }
                 finally:
                     _ACTIVE_CHAT_TRACE_ID.reset(trace_token)
                     _ACTIVE_CHAT_CONVERSATION.reset(activity_token)
-                metadata["selected_framework_ids"] = result.get("selected_framework_ids", [])
-                tool_results = result.get("tool_results", [])
-                metadata["tools"] = (
-                    [
-                        item.get("tool_name")
-                        for item in tool_results
-                        if isinstance(item, dict)
-                        and isinstance(item.get("tool_name"), str)
-                    ]
-                    if isinstance(tool_results, list)
-                    else []
-                )
-                result["activity"] = metadata
-                user_message_id, assistant_message_id = project.append_chat_turn(
-                    conversation_id, question, result
-                )
-                return {
-                    "user_message_id": user_message_id,
-                    "assistant_message_id": assistant_message_id,
-                    "result": result,
-                }
         except HTTPException:
             raise
         except ProjectError as exc:
@@ -2682,22 +2963,22 @@ def create_app(
             )
         outgoing: asyncio.Queue[dict[str, object] | None] = asyncio.Queue()
         loop = asyncio.get_running_loop()
-        cancelled = threading.Event()
+        detached = threading.Event()
 
         def publish(event: dict[str, object]) -> None:
-            if not cancelled.is_set():
-                try:
-                    loop.call_soon_threadsafe(outgoing.put_nowait, event)
-                except RuntimeError:
-                    # The browser disconnected and the response loop has closed.
-                    cancelled.set()
+            if detached.is_set():
+                return
+            try:
+                loop.call_soon_threadsafe(outgoing.put_nowait, event)
+            except RuntimeError:
+                # The chat turn continues in its worker; only its browser stream detached.
+                detached.set()
 
         def run_turn() -> None:
             stream_payload = dict(payload)
             stream_payload["_on_delta"] = lambda text: publish(
                 {"type": "delta", "text": text}
             )
-            stream_payload["_should_cancel"] = cancelled.is_set
             try:
                 result = send_chat_message(conversation_id, stream_payload)
             except HTTPException as exc:
@@ -2710,27 +2991,33 @@ def create_app(
                 publish(
                     {
                         "type": "error",
-                        "message": _chat_http_error_message(exc.detail, exc.status_code),
+                        "message": _chat_failure_message(exc),
+                        "detail": _chat_failure_detail(exc),
+                        "status_code": exc.status_code,
                     }
                 )
             except Exception as exc:  # noqa: BLE001 - return provider failures as readable chat events.
-                _LOGGER.error("Chat stream failed with %s", type(exc).__name__)
+                _LOGGER.exception("Chat stream failed with %s", type(exc).__name__)
                 publish(
                     {
                         "type": "error",
                         "message": _chat_generation_error_message(exc),
+                        "detail": _chat_failure_detail(exc),
                     }
                 )
             else:
                 publish({"type": "complete", "result": result})
             finally:
-                try:
-                    loop.call_soon_threadsafe(outgoing.put_nowait, None)
-                except RuntimeError:
-                    cancelled.set()
+                if not detached.is_set():
+                    try:
+                        loop.call_soon_threadsafe(outgoing.put_nowait, None)
+                    except RuntimeError:
+                        detached.set()
 
         async def events() -> AsyncGenerator[str, None]:
             worker = asyncio.create_task(asyncio.to_thread(run_turn))
+            _CHAT_BACKGROUND_TASKS.add(worker)
+            worker.add_done_callback(_CHAT_BACKGROUND_TASKS.discard)
             try:
                 yield ": connected\n\n"
                 while True:
@@ -2747,10 +3034,10 @@ def create_app(
                     yield f"data: {json.dumps(event, ensure_ascii=False, separators=(',', ':'))}\n\n"
                 await worker
             except asyncio.CancelledError:
-                cancelled.set()
+                detached.set()
                 raise
             finally:
-                cancelled.set()
+                detached.set()
 
         return StreamingResponse(
             events(),
@@ -3626,7 +3913,7 @@ def create_app(
     def build_retrieval_index(payload: dict[str, Any]) -> dict[str, object]:
         revision_id = payload.get("revision_id")
         preset_name = payload.get("preset_name")
-        acknowledged = payload.get("provider_egress_acknowledged")
+        acknowledged = payload.get("provider_egress_acknowledged", True)
         if not isinstance(revision_id, str) or not revision_id:
             raise HTTPException(status_code=422, detail="revision_id es obligatorio")
         if not isinstance(preset_name, str) or not preset_name.strip() or len(preset_name) > 128:
@@ -3634,7 +3921,7 @@ def create_app(
         if acknowledged is not True:
             raise HTTPException(
                 status_code=422,
-                detail="Confirma que los párrafos se enviarán al proveedor del preset",
+                detail="El envío de los párrafos al proveedor está desactivado para esta solicitud.",
             )
         try:
             with Project.open(_request_project_root(project_path)) as project:
@@ -3663,7 +3950,7 @@ def create_app(
         artifact_id = payload.get("artifact_id")
         query = payload.get("query")
         limit = payload.get("limit", 10)
-        acknowledged = payload.get("query_egress_acknowledged")
+        acknowledged = payload.get("query_egress_acknowledged", True)
         if not isinstance(revision_id, str) or not revision_id:
             raise HTTPException(status_code=422, detail="revision_id es obligatorio")
         if not isinstance(preset_name, str) or not preset_name.strip() or len(preset_name) > 128:
@@ -3678,7 +3965,7 @@ def create_app(
         if acknowledged is not True:
             raise HTTPException(
                 status_code=422,
-                detail="Confirma que la consulta se enviará al proveedor de embeddings",
+                detail="El envío de la consulta al proveedor está desactivado para esta solicitud.",
             )
         try:
             with Project.open(_request_project_root(project_path)) as project:
