@@ -94,7 +94,7 @@ def test_markdown_is_preserved_verbatim_and_duplicate_bytes_do_not_create_a_revi
         "SELECT extractor,mime_type FROM document_revisions WHERE id=?", (first.revision_id,)
     ).fetchone()
     assert tuple(revision) == ("markdown-source@1", "text/markdown")
-    assert project.revision_text(first.revision_id) == "# Notes\n\nCafé migración.\n"
+    assert project.revision_text(first.revision_id) == source.read_bytes().decode("utf-8")
 
 
 @pytest.mark.parametrize("first_suffix", [".txt", ".html"])
