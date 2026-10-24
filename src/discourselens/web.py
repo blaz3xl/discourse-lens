@@ -852,13 +852,13 @@ _INDEX_HTML = r"""<!doctype html>
     .app-authenticated .chat-input textarea::placeholder{color:#777f79}
     .app-authenticated .chat-input-row{grid-template-columns:38px minmax(0,1fr) 40px;gap:8px;min-height:40px}
     .app-authenticated .composer-attach{grid-column:1;grid-row:1}
-    .app-authenticated .chat-model-controls{grid-column:2;grid-row:1;display:flex;min-width:0;gap:8px;margin:0}
-    .app-authenticated .chat-model-controls .chat-control{display:block;min-width:0;max-width:230px}
+    .app-authenticated .chat-model-controls{grid-column:2;grid-row:1;display:flex;min-width:0;gap:7px;margin:0}
+    .app-authenticated .chat-model-controls .chat-control{display:flex;align-items:center;gap:5px;min-width:0;max-width:250px}
     .app-authenticated .chat-model-controls .chat-control:first-child{flex:1 1 190px}
-    .app-authenticated .chat-model-controls .chat-control:last-child{flex:0 1 145px}
-    .app-authenticated .chat-model-controls .chat-control>span{display:block;margin:0 0 3px;color:#747c76;font-size:9px;line-height:1.1;font-weight:550;letter-spacing:0;text-transform:none}
-    .app-authenticated .chat-model-controls select{width:100%;min-width:0;max-width:230px;height:36px;padding:6px 27px 6px 10px;border:1px solid transparent;border-radius:9px;background-color:#f5f6f5;color:#444b45;font-size:12px}
-    .app-authenticated .chat-model-controls #chatReasoning{max-width:150px}
+    .app-authenticated .chat-model-controls .chat-control:last-child{flex:0 1 175px}
+    .app-authenticated .chat-model-controls .chat-control>span{flex:0 0 auto;margin:0;color:#747c76;font-size:9px;line-height:1.1;font-weight:550;letter-spacing:0;text-transform:none}
+    .app-authenticated .chat-model-controls select{width:100%;min-width:0;max-width:230px;height:32px;padding:4px 23px 4px 8px;border:1px solid transparent;border-radius:8px;background-color:#f5f6f5;color:#444b45;font-size:11px}
+    .app-authenticated .chat-model-controls #chatReasoning{max-width:165px}
     .app-authenticated .chat-model-controls select:hover{background-color:#eceeec}
     .app-authenticated .composer-plus{width:38px;min-width:38px;height:38px;min-height:38px;padding:0;border-radius:50%;color:#454d47}
     .app-authenticated .composer-plus:hover{background:#f0f2f0}
@@ -905,9 +905,10 @@ _INDEX_HTML = r"""<!doctype html>
       .app-authenticated .chat-input{margin-bottom:2px;padding:9px 9px 6px;border-radius:22px}
       .app-authenticated .chat-input textarea{min-height:46px!important;max-height:150px;font-size:16px!important}
       .app-authenticated .chat-input-row{grid-template-columns:38px minmax(0,1fr) 40px;gap:5px}
-      .app-authenticated .chat-model-controls{display:grid;grid-template-columns:minmax(0,1fr) minmax(72px,115px);gap:4px}
-      .app-authenticated .chat-model-controls .chat-control{max-width:none;width:100%}
-      .app-authenticated .chat-model-controls select{width:100%;max-width:none;height:36px;padding:5px 22px 5px 7px;font-size:11px;text-overflow:ellipsis}
+      .app-authenticated .chat-model-controls{display:grid;grid-template-columns:minmax(0,1fr) minmax(72px,100px);gap:4px}
+      .app-authenticated .chat-model-controls .chat-control{display:block;max-width:none;width:100%}
+      .app-authenticated .chat-model-controls .chat-control>span{display:none}
+      .app-authenticated .chat-model-controls select{width:100%;max-width:none;height:32px;padding:4px 20px 4px 7px;font-size:11px;text-overflow:ellipsis}
       .app-authenticated .chat-model-controls #chatReasoning{max-width:none}
       .app-authenticated .composer-plus{width:36px;min-width:36px;height:36px;min-height:36px}
       .app-authenticated .chat-input #sendChat{width:38px;min-width:38px;height:38px;min-height:38px}
