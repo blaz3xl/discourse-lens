@@ -146,12 +146,12 @@ from .skills import (
     builtin_manifest,
     skill_documentation,
 )
+from .tenant_storage import tenant_project_path
 from .validation import validate_finding as validate_persisted_finding
 from .vectors import _embed_query_with_preset, _search_vectors_with_candidate_count
 from .vectors import hybrid_search_with_provenance as hybrid_search_core
 from .vectors import search_vectors_with_provenance as search_vectors_core
 from .versioning import software_version
-from .tenant_storage import tenant_project_path
 
 
 def _discourse_version() -> str:
