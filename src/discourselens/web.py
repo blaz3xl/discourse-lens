@@ -955,7 +955,9 @@ _INDEX_HTML = r"""<!doctype html>
     .research-tools-content .status{min-height:20px;line-height:1.5;overflow-wrap:anywhere}
     .settings-dialog .preset-row{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 8px}
     .preset-summary{min-width:0;overflow-wrap:anywhere;line-height:1.5}
-    .preset-remove{flex:0 0 auto;min-height:40px;padding:8px 12px}
+    .preset-actions{display:flex;flex:0 0 auto;align-items:center;gap:7px}
+    .preset-actions .button{min-height:40px;padding:8px 12px;white-space:nowrap}
+    .preset-default[aria-pressed="true"]{border-color:#b9c9bb;background:#edf3ed;color:#355b3d}
     @media(max-width:700px){
       .app-authenticated .chat-topline{align-items:flex-start;flex-wrap:wrap;gap:8px;padding:8px 0}
       .app-authenticated .chat-topline>div:first-child{display:block;flex:0 0 100%;min-width:0}
@@ -983,7 +985,8 @@ _INDEX_HTML = r"""<!doctype html>
       .research-tools-content>.panel{padding:14px 2px 18px}
       .research-tools-content .subtle{font-size:12px}
       .settings-dialog .preset-row{align-items:flex-start;flex-direction:column}
-      .preset-remove{width:100%}
+      .preset-actions{width:100%;flex-wrap:wrap}
+      .preset-actions .button{flex:1 1 145px}
     }
 
   </style>
@@ -1096,8 +1099,150 @@ async function loadDocs(){
 }
 async function loadVectorIndexes(){const revision=$('revision').value,select=$('vectorArtifact');select.replaceChildren();if(!revision)return;try{const data=await api(`/api/retrieval/indexes?revision_id=${encodeURIComponent(revision)}`);for(const item of data.items){const option=document.createElement('option');option.value=item.artifact_id;option.textContent=`${item.provider_id} · ${item.model} · ${item.artifact_id.slice(0,8)}`;select.append(option)}if(!data.items.length){const option=document.createElement('option');option.value='';option.textContent='No hay índice para esta revisión';select.append(option)}}catch(e){status('embeddingStatus',e.message)}}
 const providerLabels={openai:'OpenAI',anthropic:'Anthropic · Claude',gemini:'Google · Gemini',deepseek:'DeepSeek',cohere:'Cohere','openrouter':'OpenRouter','together':'Together','ollama':'Ollama','lm-studio':'LM Studio',vllm:'vLLM','openai-compatible':'OpenAI compatible','anthropic-compatible':'Anthropic compatible',mistral:'Mistral',groq:'Groq',fireworks:'Fireworks',xai:'xAI','zai':'Z.ai'};
-async function loadProviderSettings(){try{const data=await api('/api/provider-catalog'),select=$('credentialProvider'),providerSelect=$('presetProvider');select.replaceChildren();for(const item of data.providers){const option=document.createElement('option');option.value=item.provider_id;option.textContent=`${providerLabels[item.provider_id]||item.provider_id}${item.generation?' · chat':''}${item.embeddings?' · embeddings':''}`;select.append(option)}if(providerSelect.options.length){select.value=providerSelect.value||select.value}const customEndpoint=['openai-compatible','anthropic-compatible','ollama','lm-studio','vllm'].includes(select.value);$('credentialEndpoint').classList.toggle('hidden',!customEndpoint);const credentials=await api('/api/provider-credentials'),root=$('credentialList'),datalist=$('credentialAliases');root.replaceChildren();if(datalist)datalist.replaceChildren();for(const item of credentials.items){if(datalist&&item.provider_id===$('presetProvider').value){const aliasOption=document.createElement('option');aliasOption.value=item.alias;datalist.append(aliasOption)}const row=document.createElement('article'),label=document.createElement('span'),remove=document.createElement('button');row.className='result';row.style.display='flex';row.style.justifyContent='space-between';row.style.gap='12px';label.textContent=`${providerLabels[item.provider_id]||item.provider_id} · ${item.alias} · ${item.encrypted?'clave cifrada':'referencia externa'}${item.endpoint?` · ${item.endpoint}`:''}`;remove.className='button secondary';remove.textContent='Eliminar';remove.setAttribute('aria-label',`Eliminar credencial ${item.alias}`);remove.addEventListener('click',async()=>{try{await api(`/api/provider-credentials/${encodeURIComponent(item.provider_id)}/${encodeURIComponent(item.alias)}`,{method:'DELETE'});status('credentialStatus',`Credencial ${item.alias} eliminada.`);await loadProviderSettings()}catch(e){status('credentialStatus',e.message)}});row.append(label,remove);root.append(row)}if(!credentials.items.length){const empty=document.createElement('div');empty.className='subtle';empty.textContent='Todavía no hay claves de proveedor configuradas.';root.append(empty)}}catch(e){status('credentialStatus',e.message)}}
-async function loadPresets(){try{const catalog=await api('/api/provider-catalog'),providers=catalog.providers,providerSelect=$('presetProvider');providerSelect.replaceChildren();for(const item of providers.filter(item=>item.generation)){const option=document.createElement('option');option.value=item.provider_id;option.textContent=providerLabels[item.provider_id]||item.provider_id;providerSelect.append(option)}const data=await api('/api/model-presets'),root=$('presetList'),chatPreset=$('chatPreset'),embeddingPreset=$('chatEmbeddingPreset');root.replaceChildren();chatPreset.replaceChildren();embeddingPreset.replaceChildren();for(const item of data.items){const provider=providers.find(entry=>entry.provider_id===item.provider_id);const thinking=item.reasoning?` · pensamiento ${item.reasoning}`:item.reasoning_mode?` · ${item.reasoning_mode}`:'';const row=document.createElement('article'),summary=document.createElement('div'),remove=document.createElement('button');row.className='result preset-row';summary.className='preset-summary';summary.textContent=`${providerLabels[item.provider_id]||item.provider_id} · ${item.model}${thinking} · clave ${item.credential_alias}`;remove.className='button secondary preset-remove';remove.type='button';remove.textContent='Eliminar';remove.setAttribute('aria-label',`Eliminar el modelo guardado ${item.model}`);remove.addEventListener('click',async()=>{if(!window.confirm(`¿Eliminar el modelo guardado “${item.model}”? Las conversaciones existentes se conservarán, pero tendrás que configurar un modelo para continuar una conversación que lo use.`))return;remove.disabled=true;try{await api(`/api/model-presets/${encodeURIComponent(item.id)}`,{method:'DELETE'});status('presetStatus',`Modelo ${item.model} eliminado de la lista.`);await loadPresets()}catch(error){remove.disabled=false;status('presetStatus',error.message)}});row.append(summary,remove);root.append(row);if(provider?.generation){const option=document.createElement('option');option.value=item.name;option.textContent=`${providerLabels[item.provider_id]||item.provider_id} · ${item.model}${thinking}`;chatPreset.append(option)}if(provider?.embeddings){const option=document.createElement('option');option.value=item.name;option.textContent=`${providerLabels[item.provider_id]||item.provider_id} · ${item.model}`;embeddingPreset.append(option)}}if(!chatPreset.options.length){chatPreset.add(new Option('Conecta un proveedor y guarda un modelo',''))}if(!embeddingPreset.options.length){embeddingPreset.add(new Option('Sin modelos de embeddings guardados',''))}$('setupNotice').classList.toggle('hidden',chatPreset.options.length>0&&Boolean(chatPreset.options[0].value));if(!data.items.length){const empty=document.createElement('div');empty.className='subtle';empty.textContent='Conecta una clave y guarda un modelo para empezar a conversar.';root.append(empty)}await loadChatReasoning();status('chatStatus',chatPreset.value?'Enter envía · Shift+Enter añade una línea':'Configura un proveedor y guarda un modelo para activar el chat.')}catch(e){status('presetStatus',e.message)}}
+async function loadProviderSettings(){
+  try{
+    const data=await api('/api/provider-catalog'),select=$('credentialProvider'),providerSelect=$('presetProvider');
+    select.replaceChildren();
+    for(const item of data.providers){
+      const option=document.createElement('option');
+      option.value=item.provider_id;
+      option.textContent=`${providerLabels[item.provider_id]||item.provider_id}${item.generation?' · chat':''}${item.embeddings?' · embeddings':''}`;
+      select.append(option);
+    }
+    if(providerSelect.options.length)select.value=providerSelect.value||select.value;
+    const customEndpoint=['openai-compatible','anthropic-compatible','ollama','lm-studio','vllm'].includes(select.value);
+    $('credentialEndpoint').classList.toggle('hidden',!customEndpoint);
+    const credentials=await api('/api/provider-credentials'),root=$('credentialList'),datalist=$('credentialAliases');
+    root.replaceChildren();
+    if(datalist)datalist.replaceChildren();
+    for(const item of credentials.items){
+      if(datalist&&item.provider_id===$('presetProvider').value){
+        const aliasOption=document.createElement('option');
+        aliasOption.value=item.alias;
+        datalist.append(aliasOption);
+      }
+      const uses=Array.isArray(item.model_presets)?item.model_presets:[];
+      const row=document.createElement('article'),label=document.createElement('span'),remove=document.createElement('button');
+      row.className='result';
+      row.style.display='flex';
+      row.style.justifyContent='space-between';
+      row.style.gap='12px';
+      label.textContent=`${providerLabels[item.provider_id]||item.provider_id} · ${item.alias} · ${item.encrypted?'clave cifrada':'referencia externa'}${item.endpoint?` · ${item.endpoint}`:''}${uses.length?` · usada por ${uses.length} modelo(s)`:''}`;
+      remove.className='button secondary';
+      remove.textContent='Eliminar clave';
+      remove.setAttribute('aria-label',`Eliminar clave ${item.alias}`);
+      remove.addEventListener('click',async()=>{
+        const usedNames=uses.map(preset=>preset.model||preset.name).join(', ');
+        const message=uses.length
+          ?`La clave ${item.alias} se usa en ${uses.length} modelo(s): ${usedNames}. Si continúas, también se borrarán esos modelos guardados. Las conversaciones se conservarán, pero no podrán continuar con esta clave. ¿Eliminar?`
+          :`¿Eliminar la clave ${item.alias}?`;
+        if(!window.confirm(message))return;
+        remove.disabled=true;
+        try{
+          const cascade=uses.length?'?delete_presets=true':'';
+          await api(`/api/provider-credentials/${encodeURIComponent(item.provider_id)}/${encodeURIComponent(item.alias)}${cascade}`,{method:'DELETE'});
+          status('credentialStatus',uses.length?`Clave eliminada junto con ${uses.length} modelo(s) guardado(s).`:`Clave ${item.alias} eliminada.`);
+          await loadProviderSettings();
+          await loadPresets();
+        }catch(error){status('credentialStatus',error.message)}
+        finally{remove.disabled=false}
+      });
+      row.append(label,remove);
+      root.append(row);
+    }
+    if(!credentials.items.length){
+      const empty=document.createElement('div');
+      empty.className='subtle';
+      empty.textContent='Todavía no hay claves de proveedor configuradas.';
+      root.append(empty);
+    }
+  }catch(error){status('credentialStatus',error.message)}
+}
+async function loadPresets(preferredChatPreset=''){
+  try{
+    const catalog=await api('/api/provider-catalog'),providers=catalog.providers,providerSelect=$('presetProvider');
+    providerSelect.replaceChildren();
+    for(const item of providers.filter(item=>item.generation)){
+      const option=document.createElement('option');
+      option.value=item.provider_id;
+      option.textContent=providerLabels[item.provider_id]||item.provider_id;
+      providerSelect.append(option);
+    }
+    const data=await api('/api/model-presets'),root=$('presetList'),chatPreset=$('chatPreset'),embeddingPreset=$('chatEmbeddingPreset');
+    const previousChatPreset=chatPreset.value;
+    root.replaceChildren();
+    chatPreset.replaceChildren();
+    embeddingPreset.replaceChildren();
+    for(const item of data.items){
+      const provider=providers.find(entry=>entry.provider_id===item.provider_id);
+      const thinking=item.reasoning?` · pensamiento ${item.reasoning}`:item.reasoning_mode?` · ${item.reasoning_mode}`:'';
+      const row=document.createElement('article'),summary=document.createElement('div'),actions=document.createElement('div');
+      const setDefault=document.createElement('button'),remove=document.createElement('button');
+      row.className='result preset-row';
+      summary.className='preset-summary';
+      summary.textContent=`${providerLabels[item.provider_id]||item.provider_id} · ${item.model}${thinking} · clave ${item.credential_alias}`;
+      actions.className='preset-actions';
+      setDefault.className='button secondary preset-default';
+      setDefault.type='button';
+      setDefault.textContent=item.is_default?'Predeterminado':'Usar por defecto';
+      setDefault.disabled=Boolean(item.is_default)||!provider?.generation;
+      setDefault.setAttribute('aria-pressed',String(Boolean(item.is_default)));
+      setDefault.addEventListener('click',async()=>{
+        setDefault.disabled=true;
+        try{
+          await api(`/api/model-presets/${encodeURIComponent(item.id)}/default`,{method:'POST'});
+          await loadPresets(item.name);
+          await loadChatReasoning();
+          status('presetStatus',`${item.model} será el modelo predeterminado para nuevas conversaciones.`);
+        }catch(error){setDefault.disabled=false;status('presetStatus',error.message)}
+      });
+      remove.className='button secondary preset-remove';
+      remove.type='button';
+      remove.textContent='Eliminar modelo';
+      remove.setAttribute('aria-label',`Eliminar el modelo guardado ${item.model}`);
+      remove.addEventListener('click',async()=>{
+        if(!window.confirm(`¿Eliminar el modelo ${item.model}? Las conversaciones existentes se conservarán. Si era el predeterminado, se elegirá otro modelo disponible.`))return;
+        remove.disabled=true;
+        try{
+          await api(`/api/model-presets/${encodeURIComponent(item.id)}`,{method:'DELETE'});
+          status('presetStatus',`Modelo ${item.model} eliminado.`);
+          await loadPresets();
+        }catch(error){remove.disabled=false;status('presetStatus',error.message)}
+      });
+      actions.append(setDefault,remove);
+      row.append(summary,actions);
+      root.append(row);
+      if(provider?.generation){
+        const option=document.createElement('option');
+        option.value=item.name;
+        option.textContent=`${providerLabels[item.provider_id]||item.provider_id} · ${item.model}${thinking}${item.is_default?' · predeterminado':''}`;
+        chatPreset.append(option);
+      }
+      if(provider?.embeddings){
+        const option=document.createElement('option');
+        option.value=item.name;
+        option.textContent=`${providerLabels[item.provider_id]||item.provider_id} · ${item.model}`;
+        embeddingPreset.append(option);
+      }
+    }
+    if(!chatPreset.options.length)chatPreset.add(new Option('Conecta un proveedor y guarda un modelo',''));
+    if(!embeddingPreset.options.length)embeddingPreset.add(new Option('Sin modelos de embeddings guardados',''));
+    const chatNames=new Set(Array.from(chatPreset.options,option=>option.value));
+    const preferred=preferredChatPreset||(
+      chatNames.has(previousChatPreset)?previousChatPreset:data.default_name
+    );
+    if(preferred&&chatNames.has(preferred))chatPreset.value=preferred;
+    $('setupNotice').classList.toggle('hidden',chatPreset.options.length>0&&Boolean(chatPreset.options[0].value));
+    if(!data.items.length){
+      const empty=document.createElement('div');
+      empty.className='subtle';
+      empty.textContent='Conecta una clave y guarda un modelo para empezar a conversar.';
+      root.append(empty);
+    }
+    await loadChatReasoning();
+    status('chatStatus',chatPreset.value?'Enter envía · Shift+Enter añade una línea':'Configura un proveedor y guarda un modelo para activar el chat.');
+  }catch(error){status('presetStatus',error.message)}
+}
 async function loadChatReasoning(){const select=$('chatReasoning');select.replaceChildren(new Option('Usar configuración predeterminada',''));const name=$('chatPreset').value;if(!name){select.disabled=true;$('reasoningNote').textContent='Conecta un proveedor y guarda un modelo para activar el chat.';return}try{const data=await api('/api/model-presets/capabilities',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name})});const efforts=Array.isArray(data.reasoning_efforts)?data.reasoning_efforts:[];for(const effort of efforts){select.add(new Option(`Esfuerzo ${effort}`,`effort:${effort}`))}const modes=Array.isArray(data.reasoning_modes)?data.reasoning_modes:[];for(const mode of modes){if(mode==='manual'&&!data.reasoning_budget_tokens)continue;select.add(new Option(`Modo ${mode}`,`mode:${mode}`))}select.disabled=!efforts.length&&!modes.length;$('reasoningNote').textContent=data.allowed?(efforts.length||modes.length?`Opciones disponibles para este modelo: ${[...efforts,...modes].join(', ')}${data.current_reasoning?` · predeterminado: ${data.current_reasoning}`:''}`:'Este modelo no declara controles de pensamiento; se usa su configuración predeterminada.'):data.message||'Revisa la configuración de este modelo.'}catch(e){select.disabled=true;$('reasoningNote').textContent=e.message}}
 async function loadChatVectorIndexes(){const revision=$('chatRevision').value,select=$('chatVectorArtifact');select.replaceChildren();if(!revision)return;try{const data=await api(`/api/retrieval/indexes?revision_id=${encodeURIComponent(revision)}`);for(const item of data.items){const option=document.createElement('option');option.value=item.artifact_id;option.textContent=`${item.provider_id}/${item.model} · ${item.artifact_id.slice(0,8)}`;select.append(option)}if(!data.items.length){const option=document.createElement('option');option.value='';option.textContent='No hay índice para esta revisión';select.append(option)}}catch(e){status('chatStatus',e.message)}}
 async function loadConversations(selected=''){const select=$('chatConversation');select.replaceChildren(new Option('Nueva conversación',''));const suffix=currentResearchProjectId?`?research_project_id=${encodeURIComponent(currentResearchProjectId)}`:'';const data=await api(`/api/conversations${suffix}`);for(const item of data.items){const option=document.createElement('option');option.value=item.id;option.textContent=item.title;select.append(option)}if(selected&&data.items.some(item=>item.id===selected)){select.value=selected;await openConversation(selected)}else{select.value='';if(selected){activeConversationRevisionIds=[];setChatHeading();renderChatMessages([])}}}
@@ -1942,12 +2087,21 @@ def create_app(
     def provider_credentials() -> dict[str, object]:
         try:
             with Project.open(_request_project_root(project_path), read_only=True) as project:
+                preset_uses: dict[tuple[str, str], list[dict[str, str]]] = {}
+                for preset in project.list_model_presets():
+                    key = (str(preset["provider_id"]), str(preset["credential_alias"]))
+                    preset_uses.setdefault(key, []).append(
+                        {"name": str(preset["name"]), "model": str(preset["model"])}
+                    )
                 items = [
                     {
                         "provider_id": row["provider_id"],
                         "alias": row["credential_alias"],
                         "endpoint": row["endpoint"],
                         "encrypted": str(row["secret_reference"]).startswith("project-secret:"),
+                        "model_presets": preset_uses.get(
+                            (str(row["provider_id"]), str(row["credential_alias"])), []
+                        ),
                     }
                     for row in project.list_credential_references()
                 ]
@@ -1992,10 +2146,14 @@ def create_app(
             raise HTTPException(status_code=422, detail=str(exc)) from None
 
     @api.delete("/provider-credentials/{provider_id}/{alias}", status_code=status.HTTP_204_NO_CONTENT)
-    def delete_provider_credential(provider_id: str, alias: str) -> None:
+    def delete_provider_credential(
+        provider_id: str, alias: str, delete_presets: bool = False
+    ) -> None:
         try:
             with Project.open(_request_project_root(project_path)) as project:
-                project.delete_provider_credential(provider_id, alias)
+                project.delete_provider_credential(
+                    provider_id, alias, delete_presets=delete_presets
+                )
         except ProjectError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from None
 
@@ -2022,6 +2180,7 @@ def create_app(
         """List saved model configurations without exposing credential material."""
         try:
             with Project.open(_request_project_root(project_path), read_only=True) as project:
+                default_name = project.default_chat_model_preset()
                 items = []
                 for row in project.list_model_presets():
                     items.append(
@@ -2034,9 +2193,10 @@ def create_app(
                             "reasoning": row["reasoning"],
                             "reasoning_mode": row["reasoning_mode"],
                             "reasoning_budget_tokens": row["reasoning_budget_tokens"],
+                            "is_default": row["name"] == default_name,
                         }
                     )
-                return {"items": items}
+                return {"items": items, "default_name": default_name}
         except ProjectError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from None
 
@@ -2047,6 +2207,22 @@ def create_app(
             with Project.open(_request_project_root(project_path)) as project:
                 name = project.delete_model_preset(preset_id)
                 return {"id": preset_id, "name": name, "status": "deleted"}
+        except ProjectError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from None
+
+    @api.post("/model-presets/{preset_id}/default")
+    def set_default_model_preset(preset_id: str) -> dict[str, str]:
+        preset_id = _validated_resource_id(preset_id, "preset_id")
+        try:
+            with Project.open(_request_project_root(project_path)) as project:
+                preset = next(
+                    (item for item in project.list_model_presets() if item["id"] == preset_id),
+                    None,
+                )
+                if preset is None:
+                    raise HTTPException(status_code=404, detail="No se encontró ese modelo guardado")
+                project.set_default_chat_model_preset(str(preset["name"]))
+                return {"id": preset_id, "name": str(preset["name"]), "status": "default"}
         except ProjectError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from None
 

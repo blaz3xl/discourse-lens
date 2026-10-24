@@ -78,6 +78,7 @@ MAX_RESEARCH_MEMO_PAGE_SIZE = 100
 MAX_CODEBOOK_PAGE_SIZE = 100
 MAX_RESEARCH_MEMO_TITLE_CHARS = 512
 MAX_RESEARCH_MEMO_TEXT_CHARS = 4_000
+_DEFAULT_CHAT_MODEL_PRESET_KEY = "default_chat_model_preset"
 _SUPPORTS_DIR_FD_OPEN = os.open in os.supports_dir_fd
 _SUPPORTS_DIR_FD_DIRECTORY_CREATION = (
     _SUPPORTS_DIR_FD_OPEN and os.mkdir in os.supports_dir_fd and os.stat in os.supports_dir_fd
@@ -582,6 +583,11 @@ class Project:
         self.root = root.resolve()
         self._root_identity = _project_root_identity(self.root)
         self.read_only = read_only
+        if not read_only:
+            # Older or partially initialized workspaces may have a database but
+            # be missing an empty managed directory such as ``source``. Restore
+            # the required directory layout before opening the writable project.
+            _create_project_directories(self.root)
         self.hidden = self.root / ".discourselens"
         database_path = self.hidden / "project.sqlite"
         try:
@@ -5492,18 +5498,26 @@ class Project:
         )
         self.db.commit()
 
-    def delete_provider_credential(self, provider_id: str, alias: str) -> None:
+    def delete_provider_credential(
+        self, provider_id: str, alias: str, *, delete_presets: bool = False
+    ) -> None:
         """Remove a provider credential and its project-encrypted secret safely."""
+        self._require_writable()
         try:
             validate_credential_alias(alias)
         except ProjectError:
             raise DocumentError("credential alias must be a short human-readable label") from None
-        preset = self.db.execute(
-            "SELECT 1 FROM model_presets WHERE provider_id=? AND credential_alias=? LIMIT 1",
+        if type(delete_presets) is not bool:
+            raise DocumentError("delete_presets must be a boolean")
+        presets = self.db.execute(
+            "SELECT name FROM model_presets WHERE provider_id=? AND credential_alias=? ORDER BY name",
             (provider_id, alias),
-        ).fetchone()
-        if preset is not None:
-            raise DocumentError("credential is still used by a model preset")
+        ).fetchall()
+        if presets and not delete_presets:
+            raise DocumentError(
+                "Esta credencial está asociada a modelos guardados. Elimínalos primero "
+                "o confirma también la eliminación de esos modelos."
+            )
         credential = self.db.execute(
             "SELECT secret_reference FROM provider_credentials "
             "WHERE provider_id=? AND credential_alias=?",
@@ -5511,6 +5525,11 @@ class Project:
         ).fetchone()
         if credential is None:
             raise DocumentError("unknown provider credential")
+        if presets:
+            self.db.execute(
+                "DELETE FROM model_presets WHERE provider_id=? AND credential_alias=?",
+                (provider_id, alias),
+            )
         self.db.execute(
             "DELETE FROM provider_credentials WHERE provider_id=? AND credential_alias=?",
             (provider_id, alias),
@@ -5526,6 +5545,7 @@ class Project:
                     "DELETE FROM encrypted_secrets WHERE secret_reference=?",
                     (secret_reference,),
                 )
+        self._repair_default_chat_model_preset()
         self.db.commit()
 
     def _provider_secret_fernet_key(self) -> bytes:
@@ -5645,6 +5665,72 @@ class Project:
             _validate_model_preset_metadata(row)
         return rows
 
+    def _first_chat_model_preset_name(self) -> str | None:
+        from .provider_catalog import supports_generation
+
+        rows = self.db.execute(
+            "SELECT name,provider_id FROM model_presets ORDER BY name"
+        ).fetchall()
+        return next(
+            (str(row["name"]) for row in rows if supports_generation(str(row["provider_id"]))),
+            None,
+        )
+
+    def default_chat_model_preset(self) -> str | None:
+        """Return the saved default chat model, falling back to the first chat preset."""
+        from .provider_catalog import supports_generation
+
+        setting = self.db.execute(
+            "SELECT value FROM project_meta WHERE key=?", (_DEFAULT_CHAT_MODEL_PRESET_KEY,)
+        ).fetchone()
+        if setting is not None:
+            preset = self.db.execute(
+                "SELECT provider_id FROM model_presets WHERE name=?", (setting["value"],)
+            ).fetchone()
+            if preset is not None and supports_generation(str(preset["provider_id"])):
+                return str(setting["value"])
+        return self._first_chat_model_preset_name()
+
+    def set_default_chat_model_preset(self, name: str) -> None:
+        """Set the saved default used for new chat conversations in this project."""
+        self._require_writable()
+        from .provider_catalog import supports_generation
+
+        preset = self.model_preset(name)
+        if not supports_generation(str(preset["provider_id"])):
+            raise DocumentError("El modelo seleccionado no permite generar conversaciones.")
+        self.db.execute(
+            "INSERT INTO project_meta(key,value) VALUES(?,?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            (_DEFAULT_CHAT_MODEL_PRESET_KEY, name),
+        )
+        self.db.commit()
+
+    def _repair_default_chat_model_preset(self) -> None:
+        """Choose another available chat preset if the saved default was removed."""
+        from .provider_catalog import supports_generation
+
+        setting = self.db.execute(
+            "SELECT value FROM project_meta WHERE key=?", (_DEFAULT_CHAT_MODEL_PRESET_KEY,)
+        ).fetchone()
+        if setting is None:
+            return
+        current = self.db.execute(
+            "SELECT provider_id FROM model_presets WHERE name=?", (setting["value"],)
+        ).fetchone()
+        if current is not None and supports_generation(str(current["provider_id"])):
+            return
+        fallback = self._first_chat_model_preset_name()
+        if fallback is None:
+            self.db.execute(
+                "DELETE FROM project_meta WHERE key=?", (_DEFAULT_CHAT_MODEL_PRESET_KEY,)
+            )
+        else:
+            self.db.execute(
+                "UPDATE project_meta SET value=? WHERE key=?",
+                (fallback, _DEFAULT_CHAT_MODEL_PRESET_KEY),
+            )
+
     def delete_model_preset(self, preset_id: str) -> str:
         """Delete one saved provider/model configuration without touching chat history."""
         self._require_writable()
@@ -5656,6 +5742,7 @@ class Project:
         if not row:
             raise DocumentError("unknown model preset")
         self.db.execute("DELETE FROM model_presets WHERE id=?", (preset_id,))
+        self._repair_default_chat_model_preset()
         self.db.commit()
         return str(row["name"])
 
