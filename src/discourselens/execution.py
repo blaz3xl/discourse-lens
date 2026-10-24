@@ -1150,6 +1150,8 @@ def execute_model_preset_stream(
     *,
     system_prompt: str | None = None,
     image: GenerationImage | None = None,
+    response_schema_name: str | None = None,
+    response_schema: dict[str, object] | None = None,
     reasoning_override: str | None = None,
     reasoning_mode_override: str | None = None,
     provider_factory: ProviderFactory = _default_provider,
@@ -1243,13 +1245,18 @@ def execute_model_preset_stream(
             reasoning_mode=reasoning_mode,
             reasoning_budget_tokens=reasoning_budget_tokens,
             system_prompt=system_prompt,
+            response_schema_name=response_schema_name,
+            response_schema=response_schema,
         )
         request_payload: dict[str, object] = {"user_prompt": prompt}
         if system_prompt is not None:
             request_payload["system_prompt"] = system_prompt
+        if response_schema is not None:
+            request_payload["response_schema_name"] = response_schema_name or ""
+            request_payload["response_schema"] = response_schema
         request_material = (
             prompt.encode("utf-8")
-            if system_prompt is None
+            if system_prompt is None and response_schema is None
             else json.dumps(
                 request_payload,
                 ensure_ascii=False,

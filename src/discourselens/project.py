@@ -1051,6 +1051,8 @@ class Project:
         *,
         system_prompt: str | None = None,
         image: GenerationImage | None = None,
+        response_schema_name: str | None = None,
+        response_schema: dict[str, object] | None = None,
         reasoning_override: str | None = None,
         reasoning_mode_override: str | None = None,
     ) -> PresetExecutionResult:
@@ -1068,6 +1070,8 @@ class Project:
             prompt,
             system_prompt=system_prompt,
             image=image,
+            response_schema_name=response_schema_name,
+            response_schema=response_schema,
             reasoning_override=reasoning_override,
             reasoning_mode_override=reasoning_mode_override,
         )
@@ -1078,6 +1082,8 @@ class Project:
         prompt: str,
         *,
         system_prompt: str | None = None,
+        response_schema_name: str | None = None,
+        response_schema: dict[str, object] | None = None,
         reasoning_override: str | None = None,
         reasoning_mode_override: str | None = None,
     ) -> Iterator[str]:
@@ -1090,6 +1096,8 @@ class Project:
             preset_name,
             prompt,
             system_prompt=system_prompt,
+            response_schema_name=response_schema_name,
+            response_schema=response_schema,
             reasoning_override=reasoning_override,
             reasoning_mode_override=reasoning_mode_override,
         )
