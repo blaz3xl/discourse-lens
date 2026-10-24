@@ -1127,8 +1127,8 @@ def execute_model_preset_stream(
 ) -> Generator[str, None, None]:
     """Stream text from the explicitly selected preset without storing prompt/output.
 
-    An explicit model profile can disable streaming; otherwise the registered
-    provider adapter's declared transport capability is authoritative. The
+    Streaming requires an explicit capability declaration for the selected
+    model, and the provider adapter can only narrow that declaration. The
     execution ledger stores only request/response hashes or error type.
     """
 
@@ -1195,6 +1195,10 @@ def execute_model_preset_stream(
         profile = _snapshot_to_capability_profile(
             provider_id, model, resolved.get("capability_profile")
         )
+        if profile is None or not profile.capabilities.streaming:
+            raise ModelProviderError(
+                "streaming requires an exact-model capability profile declaring support"
+            )
         credential = _credential_for_preset_snapshot(
             project,
             provider_id,
@@ -1268,17 +1272,6 @@ def execute_model_preset_stream(
             provider = _create_provider(
                 project, provider_factory, endpoint, auth_reference, provider_id
             )
-            if profile is not None and profile.assurance == "UNASSESSED":
-                # An unassessed profile may carry user-declared reasoning controls while
-                # leaving transport fields at their defaults. Preserve those controls,
-                # but take streaming support from the registered provider adapter.
-                profile = replace(
-                    profile,
-                    capabilities=replace(
-                        profile.capabilities,
-                        streaming=provider.capabilities(model).streaming,
-                    ),
-                )
             provider, effective_capabilities, capability_snapshot = _apply_project_capabilities(
                 project, provider_id, model, provider, profile
             )

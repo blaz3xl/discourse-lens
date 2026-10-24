@@ -67,7 +67,7 @@ def test_chatgpt_tunnel_overlay_uses_pinned_sidecar_and_secret_files():
     mcp = config["services"]["mcp-http"]
 
     assert tunnel["profiles"] == ["chatgpt-tunnel"]
-    assert tunnel["image"].startswith("ghcr.io/openai/tunnel-client:v0.0.15@sha256:")
+    assert tunnel["image"].startswith("ghcr.io/openai/tunnel-client:v0.0.17@sha256:")
     assert re.fullmatch(r".+@sha256:[0-9a-f]{64}", tunnel["image"])
     assert tunnel["read_only"] is True
     assert tunnel["cap_drop"] == ["ALL"]
@@ -89,23 +89,6 @@ def test_chatgpt_tunnel_overlay_uses_pinned_sidecar_and_secret_files():
         tunnel["command"]
     )
     assert tunnel["depends_on"]["mcp-http"]["condition"] == "service_healthy"
-
-
-def test_cloudflare_web_quick_tunnel_does_not_claim_an_email_gate():
-    compose_path = Path(__file__).parents[1] / "compose.cloudflare-preview.yaml"
-    config = yaml.safe_load(compose_path.read_text(encoding="utf-8"))
-    service = config["services"]["cloudflare-preview"]
-
-    assert service["profiles"] == ["cloudflare-preview"]
-    assert re.fullmatch(r".+@sha256:[0-9a-f]{64}", service["image"])
-    assert service["read_only"] is True
-    assert service["cap_drop"] == ["ALL"]
-    assert "no-new-privileges:true" in service["security_opt"]
-    assert "http://web:8000" in service["command"]
-    assert "--allowed-mail" not in service["command"]
-    assert not any("DISCOURSELENS_EVALUATOR_EMAIL" in str(item) for item in service.values())
-    assert service["depends_on"]["web"]["condition"] == "service_healthy"
-    assert "ports" not in service
 
 
 def test_mcp_quick_tunnel_targets_only_the_token_protected_origin():

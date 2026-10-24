@@ -35,6 +35,8 @@ jobs:
 
   quality:
     runs-on: ubuntu-latest
+    env:
+      _TYPER_FORCE_DISABLE_TERMINAL: "1"
     steps:
       - uses: actions/checkout@v4
         with:

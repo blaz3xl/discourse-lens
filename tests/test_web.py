@@ -23,7 +23,8 @@ def web_client(tmp_path: Path):
 def test_web_landing_requires_token_for_project_data(web_client: TestClient):
     landing = web_client.get("/")
     assert landing.status_code == 200
-    assert "Herramientas para investigar el discurso" in landing.text
+    assert "Lee las fuentes." in landing.text
+    assert "Conserva la evidencia." in landing.text
     assert 'id="espacio"' in landing.text
     assert 'id="chatReasoning"' in landing.text
     assert "chat-controls{display:grid!important" in landing.text
@@ -449,6 +450,7 @@ def test_web_chat_agent_plans_and_executes_registered_mcp_tools(tmp_path: Path, 
     import json
     from types import SimpleNamespace
 
+    from discourselens.models import CredentialReference, ModelPreset
     from discourselens.web import _run_chat_agent
 
     project_root = tmp_path / "agent-project"
@@ -456,6 +458,12 @@ def test_web_chat_agent_plans_and_executes_registered_mcp_tools(tmp_path: Path, 
     source = tmp_path / "agent-visible.txt"
     source.write_text("A local source for the agent tool catalog.\n", encoding="utf-8")
     project.import_document(source)
+    project.save_credential_reference(
+        CredentialReference("openai", "fixture", "DL_CHAT_AGENT_FIXTURE_KEY")
+    )
+    project.save_model_preset(
+        ModelPreset("frontier-chat", "openai", "fixture", "gpt-example")
+    )
     project.close()
     project = Project.open(project_root)
     plans = iter(
@@ -594,8 +602,14 @@ def test_web_pdf_ocr_options_are_forwarded_to_document_importer(tmp_path: Path, 
             ocr_dpi=ocr_dpi,
             auto_ocr=auto_ocr,
         )
+        with Project.open(project_root) as project:
+            document_id, revision_id = project.import_text(
+                Path(source).name, "Fixture text persisted by the import stub."
+            )
         return SimpleNamespace(
-            document_id="document-1", revision_id="revision-1", status="SUCCESS_WITH_WARNINGS",
+            document_id=document_id,
+            revision_id=revision_id,
+            status="SUCCESS_WITH_WARNINGS",
             warnings=(),
         )
 
@@ -628,8 +642,15 @@ def test_web_enables_automatic_ocr_for_pdf_uploads(tmp_path: Path, monkeypatch):
         captured.append(
             {"ocr_language": ocr_language, "ocr_dpi": ocr_dpi, "auto_ocr": auto_ocr}
         )
+        with Project.open(project_root) as project:
+            document_id, revision_id = project.import_text(
+                Path(source).name, "Fixture text persisted by the import stub."
+            )
         return SimpleNamespace(
-            document_id="document-1", revision_id="revision-1", status="SUCCESS", warnings=()
+            document_id=document_id,
+            revision_id=revision_id,
+            status="SUCCESS",
+            warnings=(),
         )
 
     monkeypatch.setattr("discourselens.web._import_document", capture_import)
@@ -861,11 +882,12 @@ def test_web_semantic_retrieval_requires_explicit_provider_egress_ack(
         network_request_made=False,
     )
     monkeypatch.setattr(Project, "preview_paragraph_embedding_request", lambda *a, **k: preview)
+    artifact_id = "00000000-0000-0000-0000-000000000001"
     build_calls: list[tuple[object, ...]] = []
 
     def build_index(self, preset_name, selected_revision, *, embedding_provider=None):
         build_calls.append((preset_name, selected_revision))
-        return "vector-artifact-1"
+        return artifact_id
 
     monkeypatch.setattr(Project, "build_paragraph_embedding_index", build_index)
     preview_response = web_client.post(
@@ -895,7 +917,7 @@ def test_web_semantic_retrieval_requires_explicit_provider_egress_ack(
         },
     )
     assert built.status_code == 200
-    assert built.json()["artifact_id"] == "vector-artifact-1"
+    assert built.json()["artifact_id"] == artifact_id
     assert build_calls == [("embed", revision_id)]
 
     search_calls: list[str] = []
@@ -905,14 +927,14 @@ def test_web_semantic_retrieval_requires_explicit_provider_egress_ack(
         return RetrievalSearchResult(
             scope_id,
             "retrieval-run-1",
-            [VectorHit("vector-artifact-1", revision_id, "paragraph-1", 0, 14, 0.1)],
+            [VectorHit(artifact_id, revision_id, "paragraph-1", 0, 14, 0.1)],
         )
 
     monkeypatch.setattr(Project, "semantic_search_with_preset", semantic_search)
     search_payload = {
         "revision_id": revision_id,
         "preset_name": "embed",
-        "artifact_id": "vector-artifact-1",
+        "artifact_id": artifact_id,
         "query": "public policy",
     }
     search_denied = web_client.post(

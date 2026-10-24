@@ -353,10 +353,10 @@ def _run_chat_agent(
             profile = project.model_capability_profile(
                 str(preset["provider_id"]), str(preset["model"])
             )
-            can_stream = callable(on_delta) and (
-                profile is None
-                or profile.capabilities.streaming
-                or profile.assurance == "UNASSESSED"
+            can_stream = (
+                callable(on_delta)
+                and profile is not None
+                and profile.capabilities.streaming
             )
             if can_stream:
                 parser = _FinalAnswerStreamParser()

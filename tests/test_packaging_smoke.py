@@ -108,6 +108,8 @@ def test_built_wheel_installs_commands_and_bundled_resources(tmp_path):
         assert dict(entry_points.items("console_scripts")) == {
             "discourselens": "discourselens.cli:app",
             "discourselens-mcp": "discourselens.mcp_server:main",
+            "discourselens-web": "discourselens.web:main",
+            "discourselens-web-user": "discourselens.web_accounts:main",
         }
 
     environment_root = tmp_path / "clean-venv"
