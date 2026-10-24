@@ -306,9 +306,16 @@ provider request fails. Inspect saved metadata with `models list-routing`.
 
 ## Embeddings and reranking
 
-Embedding selection uses a saved model preset too, but with an embedding-capable
-provider ID. For example, select an explicit provider/model and inspect the
-request window before building the local vector index:
+Embedding selection uses a saved model preset too, but with a model that supports
+embeddings. OpenAI uses the same `openai` provider and credential as chat, with a
+separate model preset: for example, use `gpt-6-luna` for chat and
+`text-embedding-3-small` for vectors. The browser workspace filters model lists
+by role and keeps chat and embedding defaults separate. OpenAI documents
+`text-embedding-3-small`, `text-embedding-3-large`, and the older
+`text-embedding-ada-002` on its [Embeddings API](https://developers.openai.com/api/reference/resources/embeddings/methods/create).
+
+For example, select an explicit provider/model and inspect the request window
+before building the local vector index:
 
 ```bash
 discourselens models save-preset research embed openai university MODEL_ID

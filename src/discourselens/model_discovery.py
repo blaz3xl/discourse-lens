@@ -6,8 +6,8 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request
 
 from .errors import ModelProviderError, ModelResponseError, ProjectError
-from .execution import _DEFAULT_ENDPOINTS
-from .provider_catalog import supports_generation
+from .execution import _DEFAULT_EMBEDDING_ENDPOINTS, _DEFAULT_ENDPOINTS, model_role_capabilities
+from .provider_catalog import supports_embeddings, supports_generation
 from .providers import (
     _open_provider_request,
     _parse_provider_json,
@@ -23,7 +23,7 @@ _MAX_DISCOVERY_TIMEOUT_SECONDS = 12.0
 
 def _models_url(provider_id: str, endpoint: str) -> str:
     base = endpoint.rstrip("/")
-    if provider_id == "cohere":
+    if provider_id.removesuffix("-embeddings") == "cohere":
         base = base.removesuffix("/v2")
         return f"{base}/v1/models"
     if provider_id == "gemini":
@@ -31,31 +31,47 @@ def _models_url(provider_id: str, endpoint: str) -> str:
     return f"{base}/models"
 
 
-def _model_rows(provider_id: str, payload: object) -> list[dict[str, str]]:
+def _model_rows(provider_id: str, payload: object, purpose: str) -> list[dict[str, object]]:
     if not isinstance(payload, dict):
         raise ModelResponseError("provider model catalog is malformed")
+    provider_family = provider_id.removesuffix("-embeddings")
     rows: object
-    if provider_id == "gemini" or provider_id == "cohere":
+    if provider_family in {"gemini", "cohere"}:
         rows = payload.get("models")
     else:
         rows = payload.get("data")
     if not isinstance(rows, list):
         raise ModelResponseError("provider model catalog is malformed")
 
-    models: dict[str, str] = {}
+    models: dict[str, dict[str, object]] = {}
     for row in rows[:_MAX_DISCOVERED_MODELS]:
         if not isinstance(row, dict):
             continue
-        if provider_id == "gemini":
+        if provider_family == "gemini":
             supported_actions = row.get("supportedActions")
-            if not isinstance(supported_actions, list) or "generateContent" not in supported_actions:
+            if not isinstance(supported_actions, list):
+                continue
+            capabilities = {
+                "chat": "generateContent" in supported_actions,
+                "embeddings": "embedContent" in supported_actions,
+            }
+            if purpose == "both":
+                if not all(capabilities.values()):
+                    continue
+            elif not capabilities[purpose]:
                 continue
             raw_id = row.get("name")
             if isinstance(raw_id, str) and raw_id.startswith("models/"):
                 raw_id = raw_id.removeprefix("models/")
-        elif provider_id == "cohere":
+        elif provider_family == "cohere":
             endpoints = row.get("endpoints")
-            if isinstance(endpoints, list) and "chat" not in endpoints:
+            if not isinstance(endpoints, list):
+                continue
+            capabilities = {"chat": "chat" in endpoints, "embeddings": "embed" in endpoints}
+            if purpose == "both":
+                if not all(capabilities.values()):
+                    continue
+            elif not capabilities[purpose]:
                 continue
             if row.get("is_deprecated") is True:
                 continue
@@ -68,28 +84,73 @@ def _model_rows(provider_id: str, payload: object) -> list[dict[str, str]]:
         display_name = row.get("display_name", row.get("displayName", model_id))
         if not isinstance(display_name, str) or not display_name.strip() or len(display_name) > 256:
             display_name = model_id
-        models[model_id] = display_name.strip()
+        result: dict[str, object] = {"model": model_id, "display_name": display_name.strip()}
+        if provider_family in {"gemini", "cohere"}:
+            result["capabilities"] = capabilities
+        models[model_id] = result
     return [
-        {"model": model, "display_name": display_name}
-        for model, display_name in sorted(models.items(), key=lambda item: item[0].casefold())
+        row
+        for _, row in sorted(models.items(), key=lambda item: item[0].casefold())
     ]
 
 
-def discover_provider_models(project, provider_id: str, credential_alias: str) -> list[dict[str, str]]:
-    """Fetch model IDs from a generation-capable provider on explicit request.
+def _saved_embedding_profiles(project, provider_id: str) -> list[dict[str, object]]:
+    discovered = []
+    for profile in project.list_model_capability_profiles():
+        if profile["provider_id"] != provider_id:
+            continue
+        roles = model_role_capabilities(project, provider_id, str(profile["model"]))
+        if roles["embeddings"]:
+            discovered.append(
+                {
+                    "model": str(profile["model"]),
+                    "display_name": str(profile["model"]),
+                    "capabilities": roles,
+                }
+            )
+    return discovered
+
+
+def discover_provider_models(
+    project,
+    provider_id: str,
+    credential_alias: str,
+    *,
+    purpose: str = "chat",
+) -> list[dict[str, object]]:
+    """Fetch only model IDs suitable for the explicitly selected task.
 
     Provider keys are resolved only inside the project boundary. Requests carry
     no corpus material, do not follow redirects, and responses are size bounded.
-    Returned IDs are suggestions; the provider catalog may not state whether an
-    individual model supports generation or reasoning.
+    Provider discovery is only a suggestion; provider task metadata and saved
+    exact-model capability profiles determine which role selectors may use each model.
     """
-    if not supports_generation(provider_id):
-        raise ModelProviderError("selected provider does not support text generation")
+    if purpose not in {"chat", "embeddings", "both"}:
+        raise ModelProviderError("model discovery purpose must be chat, embeddings, or both")
+    provider_supports_purpose = (
+        supports_generation(provider_id)
+        if purpose == "chat"
+        else supports_embeddings(provider_id)
+        if purpose == "embeddings"
+        else supports_generation(provider_id) and supports_embeddings(provider_id)
+    )
+    if not provider_supports_purpose:
+        raise ModelProviderError(
+            "selected provider does not support the requested model purpose"
+        )
+
+    # Some embedding-only vendors do not expose a catalog endpoint.
+    if purpose == "embeddings" and provider_id not in {
+        "cohere-embeddings",
+        "gemini-embeddings",
+    } and not supports_generation(provider_id):
+        return _saved_embedding_profiles(project, provider_id)
     credential = project.credential_reference(provider_id, credential_alias)
     reference = str(credential["secret_reference"])
     endpoint = credential["endpoint"]
     if not isinstance(endpoint, str) or not endpoint:
-        endpoint = _DEFAULT_ENDPOINTS.get(provider_id)
+        defaults = _DEFAULT_EMBEDDING_ENDPOINTS if purpose == "embeddings" else _DEFAULT_ENDPOINTS
+        endpoint = defaults.get(provider_id)
     if not isinstance(endpoint, str) or not endpoint:
         raise ModelProviderError("provider model discovery requires a configured endpoint")
     endpoint = _validate_endpoint(endpoint)
@@ -101,7 +162,7 @@ def discover_provider_models(project, provider_id: str, credential_alias: str) -
 
     headers = {"Accept": "application/json"}
     if secret:
-        if provider_id == "gemini":
+        if provider_id in {"gemini", "gemini-embeddings"}:
             headers["x-goog-api-key"] = secret
         elif provider_id == "anthropic":
             headers["x-api-key"] = secret
@@ -119,4 +180,20 @@ def discover_provider_models(project, provider_id: str, credential_alias: str) -
         raise ModelProviderError("provider model catalog is unavailable") from None
     except (OSError, UnicodeDecodeError, ValueError, RecursionError):
         raise ModelProviderError("provider model catalog could not be read") from None
-    return _model_rows(provider_id, payload)
+    models = _model_rows(provider_id, payload, purpose)
+    selected = []
+    for item in models:
+        roles = model_role_capabilities(project, provider_id, str(item["model"]))
+        declared = item.get("capabilities")
+        profile = project.model_capability_profile(provider_id, str(item["model"]))
+        role_supported = all(roles.values()) if purpose == "both" else roles[purpose]
+        declared_supported = (
+            isinstance(declared, dict)
+            and (all(declared.values()) if purpose == "both" else declared.get(purpose) is True)
+        )
+        if profile is not None and not role_supported:
+            continue
+        if not role_supported and not declared_supported:
+            continue
+        selected.append({**item, "capabilities": declared if isinstance(declared, dict) else roles})
+    return selected

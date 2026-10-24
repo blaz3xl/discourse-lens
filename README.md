@@ -708,6 +708,21 @@ endpoint, while compatible providers require an explicit endpoint. The catalog
 never assumes a model's reasoning or embedding capability; those remain
 endpoint/model-specific.
 
+### Chat and embedding models in the browser workspace
+
+In **Perfil y configuración → Modelos de chat y embeddings**, choose the model's
+role before loading a provider catalog. The chat selector lists generation
+models; the embedding selector lists models declared for vectors. A saved
+credential can serve both roles. For OpenAI, keep `gpt-6-luna` for chat and use
+`text-embedding-3-small` for embeddings. GPT-6 writes the answer; the separate
+embedding model turns passages and search questions into vectors through the
+Embeddings API.
+
+The vector index is stored in the local project and is tied to its embedding
+provider and model. Building an index sends the selected passages to that
+provider, and semantic search sends the query there too. Rebuild an index if
+you change embedding provider or model. See OpenAI's [embeddings guide](https://developers.openai.com/api/docs/guides/embeddings).
+
 Provider HTTP throttling is surfaced as `RateLimitError`; a numeric
 `Retry-After` value is available as `retry_after_seconds`. Recognized quota or
 billing exhaustion is surfaced as `QuotaError`. DiscourseLens does not retry

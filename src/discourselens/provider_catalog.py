@@ -179,6 +179,14 @@ def supports_generation(provider_id: str) -> bool:
     return descriptor is not None and descriptor.generation
 
 
+def supports_embeddings(provider_id: str) -> bool:
+    """Whether a reviewed provider has an embedding transport."""
+    descriptor = next(
+        (item for item in supported_providers() if item.provider_id == provider_id), None
+    )
+    return descriptor is not None and descriptor.embeddings
+
+
 def is_reviewed_reranking_provider(provider_id: str) -> bool:
     """Whether the provider catalog exposes a reviewed reranking transport."""
     return any(item.provider_id == provider_id and item.reranking for item in _NATIVE)

@@ -1295,10 +1295,10 @@ _INDEX_HTML = r"""<!doctype html>
       <div class="panel"><h3>Adjuntar archivos</h3><div class="row"><input id="file" class="input" type="file" multiple accept=".pdf,.docx,.txt,.md,.html,.htm" aria-label="Adjuntar archivos"><button id="upload" class="button">Adjuntar</button></div><div class="status" id="uploadStatus" role="status"></div></div>
       <div class="panel"><h3>Buscar en una revisión</h3><div class="row" style="margin-bottom:10px"><input id="query" class="input" type="search" placeholder="Frase literal" aria-label="Frase literal"><button id="search" class="button">Buscar</button></div><div class="subtle">La búsqueda queda limitada a la revisión seleccionada.</div><div class="status" id="searchStatus" role="status"></div><div id="results" class="results"></div></div>
       <div class="panel"><h3>Conectar un proveedor de IA</h3><p class="subtle">Elige el proveedor, pega tu clave API y pulsa «Conectar y cargar modelos». La clave se cifra en tu proyecto y no vuelve a mostrarse. DeepSeek, OpenAI, Anthropic (Claude), Gemini y otros proveedores compatibles están disponibles.</p><div class="row"><select id="credentialProvider" class="input" aria-label="Proveedor"></select><input id="credentialAlias" class="input" maxlength="64" value="personal" placeholder="Nombre de la clave, por ejemplo personal" aria-label="Nombre de la credencial"><input id="credentialValue" class="input" type="password" autocomplete="new-password" placeholder="API key" aria-label="API key"></div><div class="row" style="margin-top:10px"><input id="credentialEndpoint" class="input" maxlength="2048" type="url" placeholder="Endpoint (solo para servidores compatibles)" aria-label="Endpoint del proveedor"><button id="saveCredential" class="button">Conectar y cargar modelos</button></div><div class="status" id="credentialStatus" role="status"></div><div id="credentialList" class="results"></div></div>
-      <div class="panel"><h3>Modelos de chat</h3><p class="subtle">Elige el proveedor y la clave, carga su catálogo y guarda el modelo que quieras usar. El nivel de pensamiento es una opción de ese modelo. Puedes cambiar de modelo desde el chat.</p><div class="row"><select id="presetProvider" class="input" aria-label="Proveedor del modelo"></select><input id="presetCredentialAlias" class="input" list="credentialAliases" maxlength="64" placeholder="Alias de credencial" aria-label="Alias de credencial"><datalist id="credentialAliases"></datalist><button id="discoverModels" class="button secondary">Cargar modelos</button></div><div class="row" style="margin-top:10px"><select id="presetModelSelect" class="input" aria-label="Modelos disponibles"><option value="">Carga modelos o escribe el ID manualmente</option></select><input id="presetModel" class="input" maxlength="256" placeholder="ID exacto del modelo" aria-label="ID exacto del modelo"></div><details class="model-advanced" style="margin-top:10px"><summary class="subtle">Opciones avanzadas de pensamiento</summary><div class="row reasoning-settings" style="margin:8px 0"><input id="presetReasoning" class="input" maxlength="64" placeholder="Esfuerzo predeterminado" aria-label="Esfuerzo de razonamiento"><select id="presetReasoningMode" class="input" aria-label="Modo de razonamiento"><option value="">Sin configurar</option><option value="adaptive">Adaptativo</option><option value="manual">Manual</option><option value="enabled">Activado</option><option value="disabled">Desactivado</option></select><input id="presetBudget" class="input" type="number" min="1" max="1000000" placeholder="Presupuesto de tokens" aria-label="Presupuesto de razonamiento"></div><p class="subtle">Configura estos valores solo si el proveedor los documenta para el modelo seleccionado. Si no, DiscourseLens usará su configuración predeterminada.</p><input id="presetAvailableReasoning" class="input" maxlength="128" placeholder="Esfuerzos admitidos: low, medium, high" aria-label="Esfuerzos de razonamiento disponibles"><input id="presetAvailableModes" class="input" maxlength="64" placeholder="Modos admitidos: adaptive, manual" aria-label="Modos de razonamiento disponibles" style="margin-top:8px;width:100%"></details><button id="savePreset" class="button" style="margin-top:10px">Guardar modelo para el chat</button><div class="status" id="presetStatus" role="status"></div><div id="presetList" class="results"></div></div>
+      <div class="panel"><h3>Modelos de chat y embeddings</h3><p class="subtle">Elige qué función tendrá el modelo. Cada lista muestra solo modelos compatibles con esa función; el pensamiento se configura únicamente para modelos de chat.</p><div class="row"><select id="presetPurpose" class="input" aria-label="Función del modelo"><option value="chat">Chat</option><option value="embeddings">Embeddings y vectores</option><option value="both">Chat y embeddings</option></select><select id="presetProvider" class="input" aria-label="Proveedor del modelo"></select><input id="presetCredentialAlias" class="input" list="credentialAliases" maxlength="64" placeholder="Alias de credencial" aria-label="Alias de credencial"><datalist id="credentialAliases"></datalist><button id="discoverModels" class="button secondary">Cargar modelos</button></div><p id="presetPurposeHelp" class="subtle" style="margin:8px 0 0">Para chat se muestran modelos de generación de texto.</p><div class="row" style="margin-top:10px"><select id="presetModelSelect" class="input" aria-label="Modelos disponibles"><option value="">Carga modelos o escribe el ID manualmente</option></select><input id="presetModel" class="input" maxlength="256" placeholder="ID exacto del modelo" aria-label="ID exacto del modelo"></div><details id="modelAdvanced" class="model-advanced" style="margin-top:10px"><summary class="subtle">Opciones avanzadas de pensamiento</summary><div class="row reasoning-settings" style="margin:8px 0"><input id="presetReasoning" class="input" maxlength="64" placeholder="Esfuerzo predeterminado" aria-label="Esfuerzo de razonamiento"><select id="presetReasoningMode" class="input" aria-label="Modo de razonamiento"><option value="">Sin configurar</option><option value="adaptive">Adaptativo</option><option value="manual">Manual</option><option value="enabled">Activado</option><option value="disabled">Desactivado</option></select><input id="presetBudget" class="input" type="number" min="1" max="1000000" placeholder="Presupuesto de tokens" aria-label="Presupuesto de razonamiento"></div><p class="subtle">Configura estos valores solo si el proveedor los documenta para el modelo seleccionado. Si no, DiscourseLens usará su configuración predeterminada.</p><input id="presetAvailableReasoning" class="input" maxlength="128" placeholder="Esfuerzos admitidos: low, medium, high" aria-label="Esfuerzos de razonamiento disponibles"><input id="presetAvailableModes" class="input" maxlength="64" placeholder="Modos admitidos: adaptive, manual" aria-label="Modos de razonamiento disponibles" style="margin-top:8px;width:100%"></details><button id="savePreset" class="button" style="margin-top:10px">Guardar modelo</button><div class="status" id="presetStatus" role="status"></div><div id="presetList" class="results"></div></div>
       <div class="panel chat-card"><h3>Chat de análisis con evidencia</h3><p class="subtle chat-explain">Pregunta a una skill lingüística sobre revisiones seleccionadas. Cada turno recupera evidencia dentro del alcance fijado, conserva análisis y citas en el proyecto e incluye el contexto previo como material no confiable. No hace afirmaciones sobre el corpus entero a partir de resultados dirigidos.</p><div class="row chat-history-controls"><select id="chatConversation" class="input" aria-label="Conversación guardada"></select><button id="loadConversation" class="button secondary">Abrir</button><button id="refreshConversations" class="button secondary" aria-label="Actualizar conversaciones" title="Actualizar conversaciones"><svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M5.6 9a7 7 0 0 1 11.8-2L20 12M4 12l2.6 5a7 7 0 0 0 11.8-2"/></svg></button></div><div class="row chat-controls"><label class="chat-control source-scope-control"><span>FUENTE ACTIVA</span><select id="chatRevision" class="input" aria-label="Revisión para chat"></select></label><label class="chat-control"><span>MODELO</span><select id="chatPreset" class="input" aria-label="Modelo de chat"></select></label><label class="chat-control"><span>PENSAMIENTO</span><select id="chatReasoning" class="input" aria-label="Nivel de razonamiento"><option value="">Predeterminado</option></select></label><span id="reasoningNote" class="chat-reasoning-note">El modelo elegido determina las opciones de razonamiento disponibles.</span></div><details class="chat-advanced"><summary>Opciones de recuperación</summary><div class="row" style="margin-top:10px"><select id="chatRetrieval" class="input" aria-label="Modo de recuperación"><option value="lexical">Recuperación léxica</option><option value="hybrid">Recuperación híbrida con embeddings</option></select><select id="chatEmbeddingPreset" class="input" aria-label="Modelo de embeddings"></select><select id="chatVectorArtifact" class="input" aria-label="Índice vectorial para chat"></select><button id="createConversation" class="button hidden">Nueva conversación</button></div></details><div id="chatMessages" class="results chat-messages" role="log" aria-label="Mensajes de la conversación" aria-live="polite" aria-relevant="additions text"></div><div class="chat-sources-row"><a id="chatSourcesLink" class="chat-sources-link" href="#" aria-haspopup="dialog" aria-controls="libraryDialog">Fuentes: 0/0</a></div><div class="chat-input"><textarea id="chatQuestion" class="input" maxlength="8000" placeholder="Escribe o pega texto y pregunta; también puedes adjuntar fuentes…" aria-label="Pregunta para el asistente"></textarea><div class="chat-input-row"><div class="composer-attach"><label id="composerPlus" class="composer-plus" for="file" title="Adjuntar un documento"><b aria-hidden="true"><svg class="icon" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></b><span>Adjuntar</span><span id="attachmentPlaceholder"></span></label></div><button id="sendChat" class="button" aria-label="Enviar mensaje" title="Enviar mensaje"><svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M12 19V5m0 0L6 11m6-6 6 6"/></svg></button></div><div class="status" id="chatStatus" role="status">Enter envía · Shift+Enter añade una línea</div></div></div>
       <div class="panel"><h3>Frecuencia de palabras</h3><button id="frequency" class="button secondary">Calcular frecuencias</button><div class="status" id="frequencyStatus" role="status"></div><div id="frequencyResults" class="results"></div></div>
-      <div class="panel"><h3>Recuperación semántica (RAG)</h3><p class="subtle">Los vectores se guardan en este proyecto Docker. Al construir el índice se envían los párrafos al proveedor indicado; al buscar se envía la consulta para calcular su embedding. El siguiente paso muestra proveedor y endpoint antes del envío.</p><div class="row"><input id="embeddingPreset" class="input" type="text" maxlength="128" placeholder="Nombre del modelo de embeddings" aria-label="Modelo de embeddings"><button id="previewEmbedding" class="button secondary">Revisar destino</button></div><div class="status" id="embeddingPreviewStatus" role="status"></div><label class="subtle"><input id="embeddingEgress" type="checkbox"> Confirmo el envío de los párrafos al proveedor para crear el índice.</label><div class="row" style="margin-top:10px"><button id="buildEmbedding" class="button">Crear índice local</button><select id="vectorArtifact" class="input" aria-label="Índice vectorial"><option value="">Selecciona un índice disponible</option></select></div><div class="status" id="embeddingStatus" role="status"></div><div class="row"><input id="semanticQuery" class="input" type="search" maxlength="2000" placeholder="Pregunta o describe un pasaje" aria-label="Consulta semántica"><button id="semanticSearch" class="button secondary">Buscar pasajes</button></div><label class="subtle"><input id="queryEgress" type="checkbox"> Confirmo que la consulta se enviará al proveedor de embeddings.</label><div class="status" id="semanticStatus" role="status"></div><div id="semanticResults" class="results"></div></div>
+      <div class="panel"><h3>Recuperación semántica (RAG)</h3><p class="subtle">Los vectores se guardan en este proyecto Docker. Al construir el índice se envían los párrafos al proveedor indicado; al buscar se envía la consulta para calcular su embedding. El siguiente paso muestra proveedor y endpoint antes del envío.</p><div class="row"><select id="embeddingPreset" class="input" aria-label="Modelo de embeddings"></select><button id="previewEmbedding" class="button secondary">Revisar destino</button></div><div class="status" id="embeddingPreviewStatus" role="status"></div><label class="subtle"><input id="embeddingEgress" type="checkbox"> Confirmo el envío de los párrafos al proveedor para crear el índice.</label><div class="row" style="margin-top:10px"><button id="buildEmbedding" class="button">Crear índice local</button><select id="vectorArtifact" class="input" aria-label="Índice vectorial"><option value="">Selecciona un índice disponible</option></select></div><div class="status" id="embeddingStatus" role="status"></div><div class="row"><input id="semanticQuery" class="input" type="search" maxlength="2000" placeholder="Pregunta o describe un pasaje" aria-label="Consulta semántica"><button id="semanticSearch" class="button secondary">Buscar pasajes</button></div><label class="subtle"><input id="queryEgress" type="checkbox"> Confirmo que la consulta se enviará al proveedor de embeddings.</label><div class="status" id="semanticStatus" role="status"></div><div id="semanticResults" class="results"></div></div>
       <div class="panel"><h3>N-gramas</h3><div class="row"><select id="ngramSize" class="input" aria-label="Tamaño del n-grama"><option value="2">Bigramas</option><option value="3">Trigramas</option><option value="4">4-gramas</option></select><button id="ngrams" class="button secondary">Calcular n-gramas</button></div><div class="status" id="ngramStatus" role="status"></div><div id="ngramResults" class="results"></div></div>
       <div class="panel"><h3>Colocaciones</h3><div class="row"><input id="collocationTerm" class="input" type="search" placeholder="Un término" aria-label="Término de colocación"><input id="collocationWindow" class="input" type="number" min="1" max="100" value="5" aria-label="Ventana de colocación"><button id="collocations" class="button secondary">Calcular colocaciones</button></div><div class="status" id="collocationStatus" role="status"></div><div id="collocationResults" class="results"></div></div>
       <div class="panel"><h3>Comparar grupos de documentos</h3><p class="subtle">Compara frecuencias normalizadas o keyness entre dos selecciones. La comparación usa las revisiones seleccionadas y conserva sus alcances.</p><div class="row"><label class="input">Grupo A<select id="leftRevisions" class="input" multiple size="5" aria-label="Revisiones del grupo A"></select></label><label class="input">Grupo B<select id="rightRevisions" class="input" multiple size="5" aria-label="Revisiones del grupo B"></select></label></div><div class="row" style="margin-top:10px"><select id="comparisonMetric" class="input" aria-label="Métrica de comparación"><option value="frequency">Frecuencia normalizada</option><option value="keyness">Keyness (log-likelihood)</option></select><button id="compare" class="button">Comparar</button></div><div class="status" id="comparisonStatus" role="status"></div><div id="comparisonResults" class="results"></div></div>
@@ -1308,7 +1308,7 @@ _INDEX_HTML = r"""<!doctype html>
     </div></section>
   </main><footer class="wrap footer"><span>DiscourseLens · investigación reproducible</span><span>CLI · Python SDK · MCP · Web</span></footer>
 <script>
-(()=>{const $=id=>document.getElementById(id),tokenKey='discourselens-web-token';let token=sessionStorage.getItem(tokenKey)||'',availableRevisionIds=[],selectedSourceIds=new Set(),activeConversationRevisionIds=[],currentResearchProjectId='',researchProjects=[],conversationItems=[],sourceSelectionInitialized=false;const status=(id,msg)=>$(id).textContent=msg;function updateSourceCounts(){const count=`${selectedSourceIds.size}/${availableRevisionIds.length}`;$('libraryCount').textContent=count;$('chatSourcesLink').textContent=`Fuentes: ${count}`} async function api(path,options={}){const headers={...options.headers};if(token)headers.Authorization=`Bearer ${token}`;const response=await fetch(path,{...options,credentials:'same-origin',headers});if(!response.ok){let message='No se pudo completar la operación';try{message=(await response.json()).detail||message}catch{}throw new Error(message)}return response.status===204?null:response.json()}
+(()=>{const $=id=>document.getElementById(id),tokenKey='discourselens-web-token';let token=sessionStorage.getItem(tokenKey)||'',availableRevisionIds=[],selectedSourceIds=new Set(),activeConversationRevisionIds=[],currentResearchProjectId='',researchProjects=[],conversationItems=[],modelPresetItems=[],sourceSelectionInitialized=false;const status=(id,msg)=>$(id).textContent=msg;function updateSourceCounts(){const count=`${selectedSourceIds.size}/${availableRevisionIds.length}`;$('libraryCount').textContent=count;$('chatSourcesLink').textContent=`Fuentes: ${count}`} async function api(path,options={}){const headers={...options.headers};if(token)headers.Authorization=`Bearer ${token}`;const response=await fetch(path,{...options,credentials:'same-origin',headers});if(!response.ok){let message='No se pudo completar la operación';try{message=(await response.json()).detail||message}catch{}throw new Error(message)}return response.status===204?null:response.json()}
 function updateProfileIdentity(user){const email=typeof user?.email==='string'?user.email.trim():'';const rawName=typeof user?.name==='string'?user.name.trim():'';const name=rawName||email.split('@')[0]||'Perfil';const parts=name.split(/\s+/).filter(Boolean),first=Array.from(parts[0]||'P')[0]||'P',last=Array.from(parts.at(-1)||'')[0]||'';const initials=(parts.length>1?first+last:Array.from(parts[0]||'P').slice(0,2).join('')).toLocaleUpperCase();$('profileAvatar').textContent=initials;$('profileName').textContent=name;const button=$('openSettingsSide');button.setAttribute('aria-label','Perfil de '+name+' y ajustes');button.title=name+' · Perfil y ajustes'}
 function assembleWorkspace(){
   const source=$('appSource'),chat=source.querySelector('#chatMessages').closest('.panel');
@@ -1325,7 +1325,7 @@ function assembleWorkspace(){
   for(const panel of Array.from(source.querySelectorAll(':scope > .panel'))){if(source.contains(panel))$('analysisHost').append(panel)}
   buildResearchToolsIndex();
   source.remove();
-  $('newConversation').addEventListener('click',()=>{setChatHeading();$('chatConversation').value='';activeConversationRevisionIds=[];$('chatPreset').disabled=false;renderChatMessages([]);loadDocs();$('chatQuestion').focus();status('chatStatus','')});$('researchProject').addEventListener('change',async()=>{setChatHeading();currentResearchProjectId=$('researchProject').value;sourceSelectionInitialized=false;$('chatConversation').value='';activeConversationRevisionIds=[];renderChatMessages([]);await loadDocs();await loadConversations()});$('newProjectToggle').addEventListener('click',()=>{$('newProjectForm').classList.remove('hidden');$('newProjectName').focus()});$('cancelNewProject').addEventListener('click',()=>{$('newProjectForm').reset();$('newProjectForm').classList.add('hidden')});$('newProjectForm').addEventListener('submit',async event=>{event.preventDefault();const name=$('newProjectName').value.trim();if(!name)return;try{const created=await api('/api/research-projects',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name})});await loadResearchProjects(created.id);setChatHeading();sourceSelectionInitialized=false;selectedSourceIds.clear();$('chatConversation').value='';renderChatMessages([]);await loadDocs();await loadConversations();$('newProjectForm').reset();$('newProjectForm').classList.add('hidden')}catch(e){status('listStatus',e.message)}});
+  $('newConversation').addEventListener('click',async()=>{setChatHeading();$('chatConversation').value='';activeConversationRevisionIds=[];sourceSelectionInitialized=false;selectedSourceIds.clear();$('chatPreset').disabled=false;$('chatRetrieval').dataset.manual='';renderChatMessages([]);await loadDocs();await loadChatVectorIndexes();$('chatQuestion').focus();status('chatStatus','')});$('researchProject').addEventListener('change',async()=>{setChatHeading();currentResearchProjectId=$('researchProject').value;sourceSelectionInitialized=false;$('chatConversation').value='';activeConversationRevisionIds=[];renderChatMessages([]);await loadDocs();await loadConversations()});$('newProjectToggle').addEventListener('click',()=>{$('newProjectForm').classList.remove('hidden');$('newProjectName').focus()});$('cancelNewProject').addEventListener('click',()=>{$('newProjectForm').reset();$('newProjectForm').classList.add('hidden')});$('newProjectForm').addEventListener('submit',async event=>{event.preventDefault();const name=$('newProjectName').value.trim();if(!name)return;try{const created=await api('/api/research-projects',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name})});await loadResearchProjects(created.id);setChatHeading();sourceSelectionInitialized=false;selectedSourceIds.clear();$('chatConversation').value='';renderChatMessages([]);await loadDocs();await loadConversations();$('newProjectForm').reset();$('newProjectForm').classList.add('hidden')}catch(e){status('listStatus',e.message)}});
   $('deleteResearchProject').addEventListener('click',deleteCurrentResearchProject);
   $('newProjectToggle').addEventListener('click',()=> $('renameProjectForm').classList.add('hidden'));
   $('renameProjectToggle').addEventListener('click',()=>{
@@ -1425,11 +1425,11 @@ async function loadDocs(){
     $('chatRevision').replaceChildren(...Array.from(select.options,option=>option.cloneNode(true)));
     if(!$('chatRevision').options.length)$('chatRevision').append(new Option('Sin fuentes en este proyecto',''));
     status('listStatus',data.total?`${data.total} documento(s) en el proyecto.`:'Todavía no hay fuentes. Adjunta un documento desde el chat.');
-    $('search').disabled=!select.options.length;await loadVectorIndexes();await loadCodingWorkspace();return data;
+    $('search').disabled=!select.options.length;await loadVectorIndexes();await loadChatVectorIndexes();await loadCodingWorkspace();return data;
   }catch(error){status('listStatus',error.message);return null}
 }
-async function loadVectorIndexes(){const revision=$('revision').value,select=$('vectorArtifact');select.replaceChildren();if(!revision)return;try{const data=await api(`/api/retrieval/indexes?revision_id=${encodeURIComponent(revision)}`);for(const item of data.items){const option=document.createElement('option');option.value=item.artifact_id;option.textContent=`${item.provider_id} · ${item.model} · ${item.artifact_id.slice(0,8)}`;select.append(option)}if(!data.items.length){const option=document.createElement('option');option.value='';option.textContent='No hay índice para esta revisión';select.append(option)}}catch(e){status('embeddingStatus',e.message)}}
-const providerLabels={openai:'OpenAI',anthropic:'Anthropic · Claude',gemini:'Google · Gemini',deepseek:'DeepSeek',cohere:'Cohere','openrouter':'OpenRouter','together':'Together','ollama':'Ollama','lm-studio':'LM Studio',vllm:'vLLM','openai-compatible':'OpenAI compatible','anthropic-compatible':'Anthropic compatible',mistral:'Mistral',groq:'Groq',fireworks:'Fireworks',xai:'xAI','zai':'Z.ai'};
+async function loadVectorIndexes(){const revision=$('revision').value,select=$('vectorArtifact'),preset=modelPresetByName($('embeddingPreset').value);select.replaceChildren();if(!revision){select.add(new Option('Selecciona una revisión',''));return}if(!preset){select.add(new Option('Guarda un modelo de embeddings',''));return}try{const data=await api(`/api/retrieval/indexes?revision_id=${encodeURIComponent(revision)}`),items=data.items.filter(item=>item.provider_id===preset.provider_id&&item.model===preset.model);for(const item of items)select.add(new Option(`${item.provider_id} · ${item.model} · ${item.artifact_id.slice(0,8)}`,item.artifact_id));if(items.length)select.value=items[0].artifact_id;else select.add(new Option('No hay índice para esta revisión y modelo',''))}catch(e){status('embeddingStatus',e.message)}}
+const providerLabels={openai:'OpenAI',anthropic:'Anthropic · Claude',gemini:'Google · Gemini',deepseek:'DeepSeek',cohere:'Cohere','cohere-embeddings':'Cohere · Embeddings','cohere-reranker':'Cohere · Reranking','gemini-embeddings':'Google · Gemini Embeddings','voyage-embeddings':'Voyage Embeddings','jina-embeddings':'Jina Embeddings','jina-reranker':'Jina Reranking','openrouter':'OpenRouter','together':'Together','ollama':'Ollama','lm-studio':'LM Studio',vllm:'vLLM','openai-compatible':'OpenAI compatible','anthropic-compatible':'Anthropic compatible',mistral:'Mistral',groq:'Groq',fireworks:'Fireworks',xai:'xAI','zai':'Z.ai'};
 async function loadProviderSettings(){
   try{
     const data=await api('/api/provider-catalog'),select=$('credentialProvider'),providerSelect=$('presetProvider');
@@ -1489,92 +1489,71 @@ async function loadProviderSettings(){
     }
   }catch(error){status('credentialStatus',error.message)}
 }
-async function loadPresets(preferredChatPreset=''){
+function modelPresetByName(name){return modelPresetItems.find(item=>item.name===name)}
+function presetSupportsProvider(provider,purpose){return purpose==='chat'?provider.generation:purpose==='embeddings'?provider.embeddings:provider.generation&&provider.embeddings}
+function syncPresetPurposeUi(){const purpose=$('presetPurpose').value,embedding=purpose==='embeddings';$('modelAdvanced').classList.toggle('hidden',embedding);$('savePreset').textContent=embedding?'Guardar modelo de embeddings':purpose==='both'?'Guardar modelo para ambas funciones':'Guardar modelo de chat';$('presetPurposeHelp').textContent=embedding?'Se muestran modelos con soporte declarado para crear vectores semánticos. OpenAI ofrece text-embedding-3-small y text-embedding-3-large.':purpose==='both'?'Se muestran modelos con capacidades declaradas tanto para generar texto como para crear vectores.':'Se muestran modelos aptos para generar texto; el pensamiento depende de las opciones documentadas por el modelo.'}
+async function loadPresets(preferredChatPreset='',preferredEmbeddingPreset=''){
   try{
-    const catalog=await api('/api/provider-catalog'),providers=catalog.providers,providerSelect=$('presetProvider');
+    const catalog=await api('/api/provider-catalog'),providers=catalog.providers,purpose=$('presetPurpose').value,providerSelect=$('presetProvider');
+    const previousProvider=providerSelect.value,eligibleProviders=providers.filter(item=>presetSupportsProvider(item,purpose));
     providerSelect.replaceChildren();
-    for(const item of providers.filter(item=>item.generation)){
-      const option=document.createElement('option');
-      option.value=item.provider_id;
-      option.textContent=providerLabels[item.provider_id]||item.provider_id;
-      providerSelect.append(option);
-    }
-    const data=await api('/api/model-presets'),root=$('presetList'),chatPreset=$('chatPreset'),embeddingPreset=$('chatEmbeddingPreset');
-    const previousChatPreset=chatPreset.value;
-    root.replaceChildren();
-    chatPreset.replaceChildren();
-    embeddingPreset.replaceChildren();
+    for(const item of eligibleProviders)providerSelect.add(new Option(providerLabels[item.provider_id]||item.provider_id,item.provider_id));
+    if(eligibleProviders.some(item=>item.provider_id===previousProvider))providerSelect.value=previousProvider;
+    syncPresetPurposeUi();
+    const data=await api('/api/model-presets'),root=$('presetList'),chatPreset=$('chatPreset'),chatEmbeddingPreset=$('chatEmbeddingPreset'),ragEmbeddingPreset=$('embeddingPreset');
+    modelPresetItems=data.items;
+    const previousChatPreset=chatPreset.value,previousEmbeddingPreset=chatEmbeddingPreset.value||ragEmbeddingPreset.value;
+    root.replaceChildren();chatPreset.replaceChildren();chatEmbeddingPreset.replaceChildren();ragEmbeddingPreset.replaceChildren();
+    const chatItems=data.items.filter(item=>item.can_chat),embeddingItems=data.items.filter(item=>item.can_embeddings);
     for(const item of data.items){
-      const provider=providers.find(entry=>entry.provider_id===item.provider_id);
       const thinking=item.reasoning?` · pensamiento ${item.reasoning}`:item.reasoning_mode?` · ${item.reasoning_mode}`:'';
-      const row=document.createElement('article'),summary=document.createElement('div'),actions=document.createElement('div');
-      const setDefault=document.createElement('button'),remove=document.createElement('button');
-      row.className='result preset-row';
-      summary.className='preset-summary';
-      summary.textContent=`${providerLabels[item.provider_id]||item.provider_id} · ${item.model}${thinking} · clave ${item.credential_alias}`;
-      actions.className='preset-actions';
-      setDefault.className='button secondary preset-default';
-      setDefault.type='button';
-      setDefault.textContent=item.is_default?'Predeterminado':'Usar por defecto';
-      setDefault.disabled=Boolean(item.is_default)||!provider?.generation;
-      setDefault.setAttribute('aria-pressed',String(Boolean(item.is_default)));
-      setDefault.addEventListener('click',async()=>{
-        setDefault.disabled=true;
-        try{
-          await api(`/api/model-presets/${encodeURIComponent(item.id)}/default`,{method:'POST'});
-          await loadPresets(item.name);
-          await loadChatReasoning();
-          status('presetStatus',`${item.model} será el modelo predeterminado para nuevas conversaciones.`);
-        }catch(error){setDefault.disabled=false;status('presetStatus',error.message)}
-      });
-      remove.className='button secondary preset-remove';
-      remove.type='button';
-      remove.textContent='Eliminar modelo';
-      remove.setAttribute('aria-label',`Eliminar el modelo guardado ${item.model}`);
-      remove.addEventListener('click',async()=>{
-        if(!window.confirm(`¿Eliminar el modelo ${item.model}? Las conversaciones existentes se conservarán. Si era el predeterminado, se elegirá otro modelo disponible.`))return;
-        remove.disabled=true;
-        try{
-          await api(`/api/model-presets/${encodeURIComponent(item.id)}`,{method:'DELETE'});
-          status('presetStatus',`Modelo ${item.model} eliminado.`);
-          await loadPresets();
-        }catch(error){remove.disabled=false;status('presetStatus',error.message)}
-      });
-      actions.append(setDefault,remove);
-      row.append(summary,actions);
-      root.append(row);
-      if(provider?.generation){
-        const option=document.createElement('option');
-        option.value=item.name;
-        option.dataset.presetId=item.id;
-        option.textContent=`${providerLabels[item.provider_id]||item.provider_id} · ${item.model}${thinking}${item.is_default?' · predeterminado':''}`;
-        chatPreset.append(option);
-      }
-      if(provider?.embeddings){
-        const option=document.createElement('option');
-        option.value=item.name;
-        option.textContent=`${providerLabels[item.provider_id]||item.provider_id} · ${item.model}`;
-        embeddingPreset.append(option);
-      }
+      const row=document.createElement('article'),summary=document.createElement('div'),title=document.createElement('div'),roles=document.createElement('div'),actions=document.createElement('div'),remove=document.createElement('button');
+      row.className='result preset-row';summary.className='preset-summary';title.textContent=`${providerLabels[item.provider_id]||item.provider_id} · ${item.model}${thinking} · clave ${item.credential_alias}`;roles.style.cssText='display:flex;gap:6px;flex-wrap:wrap;margin-top:6px';
+      if(item.can_chat){const badge=document.createElement('span');badge.className='tag';badge.textContent=item.is_default?'Chat · predeterminado':'Chat';roles.append(badge)}
+      if(item.can_embeddings){const badge=document.createElement('span');badge.className='tag';badge.textContent=item.is_default_embedding?'Embeddings · predeterminado':'Embeddings';roles.append(badge)}
+      summary.append(title,roles);actions.className='preset-actions';
+      const addDefaultAction=(role,isDefault,endpoint,label)=>{const button=document.createElement('button');button.className='button secondary preset-default';button.type='button';button.textContent=isDefault?`Predeterminado · ${label}`:`Usar para ${label}`;button.disabled=Boolean(isDefault);button.setAttribute('aria-pressed',String(Boolean(isDefault)));button.addEventListener('click',async()=>{button.disabled=true;try{await api(`/api/model-presets/${encodeURIComponent(item.id)}/${endpoint}`,{method:'POST'});await loadPresets(role==='chat'?item.name:'',role==='embeddings'?item.name:'');if(role==='chat')await loadChatReasoning();status('presetStatus',`${item.model} quedó como modelo predeterminado para ${label}.`)}catch(error){button.disabled=false;status('presetStatus',error.message)}});actions.append(button)};
+      if(item.can_chat)addDefaultAction('chat',item.is_default,'default','chat');
+      if(item.can_embeddings)addDefaultAction('embeddings',item.is_default_embedding,'embedding-default','embeddings');
+      remove.className='button secondary preset-remove';remove.type='button';remove.textContent='Eliminar modelo';remove.setAttribute('aria-label',`Eliminar el modelo guardado ${item.model}`);remove.addEventListener('click',async()=>{if(!window.confirm(`¿Eliminar el modelo ${item.model}? Las conversaciones existentes se conservarán. Si era el predeterminado, se elegirá otro modelo disponible.`))return;remove.disabled=true;try{await api(`/api/model-presets/${encodeURIComponent(item.id)}`,{method:'DELETE'});status('presetStatus',`Modelo ${item.model} eliminado.`);await loadPresets()}catch(error){remove.disabled=false;status('presetStatus',error.message)}});
+      actions.append(remove);row.append(summary,actions);root.append(row);
+      if(item.can_chat)chatPreset.add(new Option(`${providerLabels[item.provider_id]||item.provider_id} · ${item.model}${thinking}${item.is_default?' · predeterminado':''}`,item.name));
+      if(item.can_embeddings){const label=`${providerLabels[item.provider_id]||item.provider_id} · ${item.model}${item.is_default_embedding?' · predeterminado':''}`;chatEmbeddingPreset.add(new Option(label,item.name));ragEmbeddingPreset.add(new Option(label,item.name))}
     }
-    if(!chatPreset.options.length)chatPreset.add(new Option('Conecta un proveedor y guarda un modelo',''));
-    if(!embeddingPreset.options.length)embeddingPreset.add(new Option('Sin modelos de embeddings guardados',''));
-    const chatNames=new Set(Array.from(chatPreset.options,option=>option.value));
-    const preferred=preferredChatPreset||(data.default_name||previousChatPreset);
-    if(preferred&&chatNames.has(preferred))chatPreset.value=preferred;
-    $('setupNotice').classList.toggle('hidden',chatPreset.options.length>0&&Boolean(chatPreset.options[0].value));
-    if(!data.items.length){
-      const empty=document.createElement('div');
-      empty.className='subtle';
-      empty.textContent='Conecta una clave y guarda un modelo para empezar a conversar.';
-      root.append(empty);
-    }
-    await loadChatReasoning();
-    status('chatStatus',chatPreset.value?'Enter envía · Shift+Enter añade una línea':'Configura un proveedor y guarda un modelo para activar el chat.');
+    if(!chatItems.length)chatPreset.add(new Option('Conecta un proveedor y guarda un modelo de chat',''));
+    if(!embeddingItems.length){chatEmbeddingPreset.add(new Option('Guarda un modelo de embeddings',''));ragEmbeddingPreset.add(new Option('Guarda un modelo de embeddings',''))}
+    const selectedChat=preferredChatPreset||data.default_name||previousChatPreset;
+    if(chatItems.some(item=>item.name===selectedChat))chatPreset.value=selectedChat;
+    const selectedEmbedding=preferredEmbeddingPreset||data.default_embedding_name||previousEmbeddingPreset;
+    if(embeddingItems.some(item=>item.name===selectedEmbedding)){chatEmbeddingPreset.value=selectedEmbedding;ragEmbeddingPreset.value=selectedEmbedding}
+    $('setupNotice').classList.toggle('hidden',chatItems.length>0);
+    if(!data.items.length){const empty=document.createElement('div');empty.className='subtle';empty.textContent='Conecta una clave y guarda un modelo para empezar a conversar o crear índices vectoriales.';root.append(empty)}
+    await loadChatReasoning();await loadVectorIndexes();await loadChatVectorIndexes();$('chatRetrieval').dispatchEvent(new Event('change'));
+    status('chatStatus',chatPreset.value?'Enter envía · Shift+Enter añade una línea':'Configura un proveedor y guarda un modelo de chat para activar el chat.');
   }catch(error){status('presetStatus',error.message)}
 }
 async function loadChatReasoning(){const select=$('chatReasoning');select.replaceChildren(new Option('Usar configuración predeterminada',''));const name=$('chatPreset').value;if(!name){select.disabled=true;$('reasoningNote').textContent='Conecta un proveedor y guarda un modelo para activar el chat.';return}try{const data=await api('/api/model-presets/capabilities',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name})});const efforts=Array.isArray(data.reasoning_efforts)?data.reasoning_efforts:[];for(const effort of efforts){select.add(new Option(`Esfuerzo ${effort}`,`effort:${effort}`))}const modes=Array.isArray(data.reasoning_modes)?data.reasoning_modes:[];for(const mode of modes){if(mode==='manual'&&!data.reasoning_budget_tokens)continue;select.add(new Option(`Modo ${mode}`,`mode:${mode}`))}select.disabled=!efforts.length&&!modes.length;if(typeof data.saved_reasoning==='string'&&Array.from(select.options).some(option=>option.value===data.saved_reasoning))select.value=data.saved_reasoning;$('reasoningNote').textContent=data.allowed?(efforts.length||modes.length?`Opciones disponibles para este modelo: ${[...efforts,...modes].join(', ')}${data.current_reasoning?` · predeterminado: ${data.current_reasoning}`:''}${data.saved_reasoning?` · preferencia guardada: ${data.saved_reasoning.replace(':',' ')}`:''}`:'Este modelo no declara controles de pensamiento; se usa su configuración predeterminada.'):data.message||'Revisa la configuración de este modelo.'}catch(e){select.disabled=true;$('reasoningNote').textContent=e.message}}
-async function loadChatVectorIndexes(){const revision=$('chatRevision').value,select=$('chatVectorArtifact');select.replaceChildren();if(!revision)return;try{const data=await api(`/api/retrieval/indexes?revision_id=${encodeURIComponent(revision)}`);for(const item of data.items){const option=document.createElement('option');option.value=item.artifact_id;option.textContent=`${item.provider_id}/${item.model} · ${item.artifact_id.slice(0,8)}`;select.append(option)}if(!data.items.length){const option=document.createElement('option');option.value='';option.textContent='No hay índice para esta revisión';select.append(option)}}catch(e){status('chatStatus',e.message)}}
+async function loadChatVectorIndexes(){
+  const revision=$('chatRevision').value,select=$('chatVectorArtifact'),preset=modelPresetByName($('chatEmbeddingPreset').value),hybridOption=$('chatRetrieval').querySelector('option[value="hybrid"]');
+  select.replaceChildren();
+  let items=[];
+  if(!revision){select.add(new Option('Selecciona una fuente',''))}
+  else if(!preset){select.add(new Option('Configura un modelo de embeddings',''))}
+  else{
+    try{
+      const data=await api(`/api/retrieval/indexes?revision_id=${encodeURIComponent(revision)}`);
+      items=data.items.filter(item=>item.provider_id===preset.provider_id&&item.model===preset.model);
+      for(const item of items)select.add(new Option(`${item.provider_id}/${item.model} · ${item.artifact_id.slice(0,8)}`,item.artifact_id));
+      if(!items.length)select.add(new Option('No hay índice compatible para esta revisión',''));
+    }catch(error){select.add(new Option('No se pudieron cargar los índices',''));status('chatStatus',error.message)}
+  }
+  hybridOption.disabled=!items.length;
+  if(items.length){
+    select.value=items[0].artifact_id;
+    if(!$('chatConversation').value&&!$('chatRetrieval').dataset.manual)$('chatRetrieval').value='hybrid';
+  }else if($('chatRetrieval').value==='hybrid')$('chatRetrieval').value='lexical';
+  $('chatRetrieval').dispatchEvent(new Event('change'));
+}
 function renderConversationTree(items=conversationItems,selected=$('chatConversation').value){const tree=$('conversationTree');if(!tree)return;tree.replaceChildren();const groups=new Map();for(const project of researchProjects)groups.set(String(project.id),{project,items:[]});for(const item of items){const key=String(item.research_project_id||'');if(!groups.has(key))groups.set(key,{project:{id:key,name:key?'Proyecto desconocido':'Sin proyecto'},items:[]});groups.get(key).items.push(item)}for(const group of groups.values()){const details=document.createElement('details'),summary=document.createElement('summary'),name=document.createElement('span'),count=document.createElement('span'),list=document.createElement('div');details.className='conversation-project';details.open=String(group.project.id)===String(currentResearchProjectId)||group.items.some(item=>String(item.id)===String(selected));summary.className='conversation-project-summary';name.className='conversation-project-name';name.textContent=group.project.name;count.className='conversation-project-count';count.textContent=String(group.items.length);summary.append(name,count);list.className='conversation-tree-list';if(!group.items.length){const empty=document.createElement('div');empty.className='conversation-tree-empty';empty.textContent='Aún no hay conversaciones';list.append(empty)}for(const item of group.items){const row=document.createElement('div'),open=document.createElement('button'),remove=document.createElement('button'),icon=document.createElementNS('http://www.w3.org/2000/svg','svg'),path=document.createElementNS('http://www.w3.org/2000/svg','path');row.className='conversation-tree-row';open.type='button';open.className='conversation-tree-open';open.textContent=item.title||'Conversación';open.title=item.title||'Conversación';open.setAttribute('aria-current',String(item.id)===String(selected)?'true':'false');open.addEventListener('click',async()=>{const select=$('chatConversation');select.value=item.id;await openConversation(item.id);setChatHeading(item.title||'Conversación');renderConversationTree(conversationItems,item.id)});remove.type='button';remove.className='conversation-tree-delete';remove.setAttribute('aria-label','Eliminar conversación: '+(item.title||'Conversación'));remove.title='Eliminar conversación';icon.setAttribute('viewBox','0 0 24 24');icon.setAttribute('aria-hidden','true');icon.classList.add('icon');path.setAttribute('d','M4 7h16M10 11v6m4-6v6M5 7l1 13h12l1-13M9 7V4h6v3');icon.append(path);remove.append(icon);remove.addEventListener('click',()=>deleteConversationFromTree(item,remove));row.append(open,remove);list.append(row)}details.append(summary,list);tree.append(details)}}
 async function deleteConversationFromTree(item,button){const conversationId=String(item.id),active=$('chatConversation').value===conversationId;if(active&&$('sendChat').disabled){status('chatStatus','Espera a que termine la respuesta antes de borrar esta conversación.');return}if(!window.confirm('¿Eliminar la conversación «'+(item.title||'Conversación')+'»? Se borrarán sus mensajes; el proyecto y sus fuentes se conservarán.'))return;button.disabled=true;try{await api('/api/conversations/'+encodeURIComponent(conversationId),{method:'DELETE'});if(active){$('chatConversation').value='';activeConversationRevisionIds=[];$('chatPreset').disabled=false;renderChatMessages([]);setChatHeading();await loadDocs()}const keepSelected=active?'':$('chatConversation').value;await loadConversations(keepSelected);status('chatStatus','Conversación eliminada.')}catch(error){status('chatStatus',error.message);button.disabled=false}}
 async function loadConversations(selected='',open=true){const select=$('chatConversation'),current=selected||select.value;select.replaceChildren(new Option('Nueva conversación',''));const data=await api('/api/conversations');conversationItems=data.items;for(const item of conversationItems){const option=document.createElement('option');option.value=item.id;option.textContent=item.title;select.append(option)}const active=conversationItems.some(item=>String(item.id)===String(current))?current:(conversationItems[0]?.id||'');if(active){select.value=active;if(open)await openConversation(active);setChatHeading(conversationItems.find(item=>String(item.id)===String(active))?.title||'Conversación');renderConversationTree(conversationItems,active)}else{select.value='';renderConversationTree(conversationItems,'');if(current){activeConversationRevisionIds=[];$('chatPreset').disabled=false;setChatHeading();renderChatMessages([])}}}
@@ -1625,12 +1604,14 @@ async function connect(){token=$('token').value.trim();try{await loadWorkspace()
 let accountCreatePath='/auth/setup';
 async function submitLocalAuth(event,form,endpoint){event.preventDefault();const button=form.querySelector('button[type="submit"]');button.disabled=true;status('connectStatus','Comprobando los datos…');const payload=Object.fromEntries(new FormData(form).entries());try{const response=await fetch(endpoint,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});let result={};try{result=await response.json()}catch{}if(!response.ok)throw new Error(result.detail||'No se pudo iniciar sesión.');updateProfileIdentity(result);token='';sessionStorage.removeItem(tokenKey);await loadWorkspace()}catch(e){status('connectStatus',e.message||'No se pudo iniciar sesión.')}finally{button.disabled=false}}
 $('openSettingsSide').addEventListener('click',()=>openSettings());$('closeSettings').addEventListener('click',()=>$('settingsDialog').close());$('settingsDialog').addEventListener('click',event=>{if(event.target===$('settingsDialog'))$('settingsDialog').close()});$('openSettingsLink').addEventListener('click',event=>{event.preventDefault();openSettings()});$('connectButton').addEventListener('click',connect);$('token').addEventListener('keydown',e=>{if(e.key==='Enter')connect()});$('passwordLoginForm').addEventListener('submit',event=>submitLocalAuth(event,$('passwordLoginForm'),'/auth/login'));$('accountCreateForm').addEventListener('submit',event=>submitLocalAuth(event,$('accountCreateForm'),accountCreatePath));$('accountJoinButton').addEventListener('click',()=>{const creating=$('accountCreateForm').classList.contains('hidden');$('accountCreateForm').classList.toggle('hidden',!creating);$('passwordLoginForm').classList.toggle('hidden',creating);$('accountJoinButton').textContent=creating?'Volver al inicio de sesión':'Crear una cuenta';$('accountCreateHeading').textContent='Crear una cuenta';$('accountCreateHelp').textContent='Elige una contraseña de al menos 12 caracteres.'});$('refresh').addEventListener('click',loadDocs);$('disconnect').addEventListener('click',async()=>{sessionStorage.removeItem(tokenKey);token='';$('token').value='';try{await api('/auth/logout',{method:'POST'})}catch{}connected(false);await initAuth()});
-async function discoverModelsFor(provider_id,credential_alias){const data=await api('/api/provider-models/discover',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({provider_id,credential_alias})});const select=$('presetModelSelect');select.replaceChildren();for(const item of data.items){select.add(new Option(`${item.display_name} · ${item.model}`,item.model))}if(data.items.length){$('presetModel').value=data.items[0].model;select.selectedIndex=0;return data.items.length}select.add(new Option('El catálogo no devolvió IDs',''));return 0}
-$('saveCredential').addEventListener('click',async()=>{const provider_id=$('credentialProvider').value,alias=$('credentialAlias').value.trim(),secret=$('credentialValue').value,endpoint=$('credentialEndpoint').value.trim()||null;if(!provider_id||!alias||!secret){status('credentialStatus','Selecciona proveedor, nombre e introduce la clave API.');return}const button=$('saveCredential');button.disabled=true;status('credentialStatus','Guardando la clave cifrada…');try{const result=await api('/api/provider-credentials',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({provider_id,alias,secret,endpoint})});$('credentialValue').value='';$('presetProvider').value=provider_id;$('presetCredentialAlias').value=alias;await loadProviderSettings();status('credentialStatus','Clave guardada. Comprobando conexión y cargando modelos…');try{const count=await discoverModelsFor(provider_id,alias);$('presetModel').focus();status('credentialStatus',count?`Conexión correcta · ${count} modelos disponibles. Elige uno y guarda el modelo para usarlo en el chat.`:'Clave guardada, pero el proveedor no devolvió modelos. Comprueba la clave o escribe el ID del modelo.');status('presetStatus',count?`${count} modelos disponibles; selecciona uno y guarda el modelo.`:'No hay modelos listados. Puedes indicar el ID exacto manualmente.')}catch(e){status('credentialStatus',`La clave quedó guardada, pero no se pudo conectar: ${e.message}`)}}catch(e){status('credentialStatus',e.message)}finally{button.disabled=false}});
-$('discoverModels').addEventListener('click',async()=>{const provider_id=$('presetProvider').value,credential_alias=$('presetCredentialAlias').value.trim();if(!provider_id||!credential_alias){status('presetStatus','Selecciona proveedor e indica el alias de la clave guardada.');return}const button=$('discoverModels');button.disabled=true;status('presetStatus','Comprobando conexión y consultando modelos…');try{const count=await discoverModelsFor(provider_id,credential_alias);status('presetStatus',count?`${count} modelos recibidos; elige el que quieras utilizar.`:'El proveedor no devolvió IDs; puedes introducir el identificador manualmente.')}catch(e){status('presetStatus',e.message)}finally{button.disabled=false}});
+async function discoverModelsFor(provider_id,credential_alias,purpose=$('presetPurpose').value){const data=await api('/api/provider-models/discover',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({provider_id,credential_alias,purpose})}),select=$('presetModelSelect');select.replaceChildren();for(const item of data.items)select.add(new Option(`${item.display_name} · ${item.model}`,item.model));if(data.items.length){$('presetModel').value=data.items[0].model;select.selectedIndex=0;return data.items.length}select.add(new Option('No hay IDs declarados para esta función',''));return 0}
+$('saveCredential').addEventListener('click',async()=>{const provider_id=$('credentialProvider').value,alias=$('credentialAlias').value.trim(),secret=$('credentialValue').value,endpoint=$('credentialEndpoint').value.trim()||null;if(!provider_id||!alias||!secret){status('credentialStatus','Selecciona proveedor, nombre e introduce la clave API.');return}const button=$('saveCredential');button.disabled=true;status('credentialStatus','Guardando la clave cifrada…');try{await api('/api/provider-credentials',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({provider_id,alias,secret,endpoint})});$('credentialValue').value='';const catalog=await api('/api/provider-catalog'),provider=catalog.providers.find(item=>item.provider_id===provider_id);if(provider&&!presetSupportsProvider(provider,$('presetPurpose').value))$('presetPurpose').value=provider.generation?'chat':'embeddings';await loadPresets();$('presetProvider').value=provider_id;$('presetCredentialAlias').value=alias;await loadProviderSettings();status('credentialStatus','Clave guardada. Comprobando conexión y cargando modelos…');try{const count=await discoverModelsFor(provider_id,alias);$('presetModel').focus();status('credentialStatus',count?`Conexión correcta · ${count} modelos para ${$('presetPurpose').value}. Elige uno y guárdalo.`:'Clave guardada, pero no se encontraron modelos para esta función. Puedes indicar un ID exacto si el proveedor lo documenta.');status('presetStatus',count?`${count} modelos aptos disponibles; selecciona uno.`:'No hay modelos listados para esta función; puedes indicar el ID exacto.')}catch(e){status('credentialStatus',`La clave quedó guardada, pero no se pudo conectar: ${e.message}`)}}catch(e){status('credentialStatus',e.message)}finally{button.disabled=false}});
+$('discoverModels').addEventListener('click',async()=>{const provider_id=$('presetProvider').value,credential_alias=$('presetCredentialAlias').value.trim();if(!provider_id||!credential_alias){status('presetStatus','Selecciona proveedor e indica el alias de la clave guardada.');return}const button=$('discoverModels');button.disabled=true;status('presetStatus','Comprobando conexión y consultando modelos aptos…');try{const count=await discoverModelsFor(provider_id,credential_alias);status('presetStatus',count?`${count} modelos aptos recibidos; elige el que quieras guardar.`:'El proveedor no devolvió modelos declarados para esta función. Puedes escribir un ID exacto.')}catch(e){status('presetStatus',e.message)}finally{button.disabled=false}});
 $('presetModelSelect').addEventListener('change',()=>{if($('presetModelSelect').value)$('presetModel').value=$('presetModelSelect').value});
-$('savePreset').addEventListener('click',async()=>{const provider_id=$('presetProvider').value,credential_alias=$('presetCredentialAlias').value.trim(),model=$('presetModel').value.trim(),reasoning=$('presetReasoning').value.trim()||null,reasoning_mode=$('presetReasoningMode').value||null,budgetText=$('presetBudget').value,reasoning_budget_tokens=budgetText?Number(budgetText):null,parseOptions=id=>Array.from(new Set($(id).value.split(',').map(value=>value.trim()).filter(Boolean)));const reasoning_efforts=parseOptions('presetAvailableReasoning'),reasoning_modes=parseOptions('presetAvailableModes');if(reasoning)reasoning_efforts.push(reasoning);if(reasoning_mode)reasoning_modes.push(reasoning_mode);if(!provider_id||!credential_alias||!model){status('presetStatus','Completa proveedor, clave y modelo exacto.');return}status('presetStatus','Guardando modelo…');try{const catalog=await api('/api/model-presets'),existing=catalog.items.find(item=>item.provider_id===provider_id&&item.credential_alias===credential_alias&&item.model===model),name=existing?.name||`${provider_id}/${credential_alias}/${model}`.slice(0,256);if(reasoning_efforts.length||reasoning_modes.length){await api('/api/model-capabilities',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({provider_id,model,reasoning_efforts:Array.from(new Set(reasoning_efforts)),reasoning_modes:Array.from(new Set(reasoning_modes))})})}await api('/api/model-presets',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,provider_id,credential_alias,model,reasoning,reasoning_mode,reasoning_budget_tokens})});status('presetStatus','Modelo guardado y disponible en el chat.');await loadPresets()}catch(e){status('presetStatus',e.message)}});
-$('chatRevision').addEventListener('change',loadChatVectorIndexes);$('chatPreset').addEventListener('change',async()=>{const select=$('chatPreset'),selected=select.selectedOptions[0],presetId=selected?.dataset.presetId;if(presetId){try{await api(`/api/model-presets/${encodeURIComponent(presetId)}/default`,{method:'POST'});for(const option of select.options)option.textContent=option.textContent.replace(' · predeterminado','');selected.textContent+=' · predeterminado';status('chatStatus','Modelo guardado en tu espacio.')}catch(error){status('chatStatus',error.message)}}await loadChatReasoning()});$('chatReasoning').addEventListener('change',async()=>{const name=$('chatPreset').value;if(!name)return;try{await api('/api/chat-preferences/reasoning',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,reasoning:$('chatReasoning').value||null})});status('chatStatus','Preferencia de pensamiento guardada en tu espacio.')}catch(error){status('chatStatus',error.message)}});$('presetProvider').addEventListener('change',loadProviderSettings);$('chatQuestion').addEventListener('input',()=>{const field=$('chatQuestion');field.style.height='auto';field.style.height=`${Math.min(field.scrollHeight,104)}px`;field.style.overflowY=field.scrollHeight>104?'auto':'hidden'});$('chatQuestion').addEventListener('keydown',event=>{if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();$('sendChat').click()}});$('chatRetrieval').addEventListener('change',()=>{const hybrid=$('chatRetrieval').value==='hybrid';$('chatEmbeddingPreset').classList.toggle('hidden',!hybrid);$('chatVectorArtifact').classList.toggle('hidden',!hybrid)});
+$('savePreset').addEventListener('click',async()=>{const provider_id=$('presetProvider').value,credential_alias=$('presetCredentialAlias').value.trim(),model=$('presetModel').value.trim(),purpose=$('presetPurpose').value,reasoning=purpose==='embeddings'?null:$('presetReasoning').value.trim()||null,reasoning_mode=purpose==='embeddings'?null:$('presetReasoningMode').value||null,budgetText=purpose==='embeddings'?'':$('presetBudget').value,reasoning_budget_tokens=budgetText?Number(budgetText):null,parseOptions=id=>Array.from(new Set($(id).value.split(',').map(value=>value.trim()).filter(Boolean)));const reasoning_efforts=purpose==='embeddings'?[]:parseOptions('presetAvailableReasoning'),reasoning_modes=purpose==='embeddings'?[]:parseOptions('presetAvailableModes');if(reasoning)reasoning_efforts.push(reasoning);if(reasoning_mode)reasoning_modes.push(reasoning_mode);if(!provider_id||!credential_alias||!model){status('presetStatus','Completa proveedor, clave y modelo exacto.');return}status('presetStatus','Guardando configuración…');try{const catalog=await api('/api/model-presets'),existing=catalog.items.find(item=>item.provider_id===provider_id&&item.credential_alias===credential_alias&&item.model===model),name=existing?.name||`${provider_id}/${credential_alias}/${model}`.slice(0,256);await api('/api/model-capabilities',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({provider_id,model,purpose,reasoning_efforts:Array.from(new Set(reasoning_efforts)),reasoning_modes:Array.from(new Set(reasoning_modes))})});const saved=await api('/api/model-presets',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,provider_id,credential_alias,model,reasoning,reasoning_mode,reasoning_budget_tokens})});if(purpose==='embeddings'||purpose==='both')await api(`/api/model-presets/${encodeURIComponent(saved.id)}/embedding-default`,{method:'POST'});status('presetStatus',purpose==='embeddings'?'Modelo de embeddings guardado como predeterminado.':'Modelo de chat guardado y disponible.');await loadPresets(purpose==='chat'?name:'',purpose!=='chat'?name:'')}catch(e){status('presetStatus',e.message)}});
+$('presetPurpose').addEventListener('change',async()=>{syncPresetPurposeUi();$('presetModel').value='';$('presetModelSelect').replaceChildren(new Option('Carga modelos o escribe el ID manualmente',''));await loadPresets();await loadProviderSettings()});
+$('presetProvider').addEventListener('change',loadProviderSettings);
+$('chatPreset').addEventListener('change',async()=>{const item=modelPresetByName($('chatPreset').value);if(item){try{await api(`/api/model-presets/${encodeURIComponent(item.id)}/default`,{method:'POST'});await loadPresets(item.name);status('chatStatus',`Modelo ${item.model} guardado en tu espacio.`)}catch(error){status('chatStatus',error.message)}}await loadChatReasoning()});$('chatReasoning').addEventListener('change',async()=>{const name=$('chatPreset').value;if(!name)return;try{await api('/api/chat-preferences/reasoning',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,reasoning:$('chatReasoning').value||null})});status('chatStatus','Preferencia de pensamiento guardada en tu espacio.')}catch(error){status('chatStatus',error.message)}});$('chatQuestion').addEventListener('input',()=>{const field=$('chatQuestion');field.style.height='auto';field.style.height=`${Math.min(field.scrollHeight,104)}px`;field.style.overflowY=field.scrollHeight>104?'auto':'hidden'});$('chatQuestion').addEventListener('keydown',event=>{if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();$('sendChat').click()}});$('chatRetrieval').addEventListener('change',event=>{if(event.isTrusted)$('chatRetrieval').dataset.manual='true';const hybrid=$('chatRetrieval').value==='hybrid';$('chatEmbeddingPreset').classList.toggle('hidden',!hybrid);$('chatVectorArtifact').classList.toggle('hidden',!hybrid)});$('chatEmbeddingPreset').addEventListener('change',loadChatVectorIndexes);$('embeddingPreset').addEventListener('change',async()=>{const preset=modelPresetByName($('embeddingPreset').value);if(!preset)return;try{const item=modelPresetItems.find(candidate=>candidate.name===preset.name);if(item)await api(`/api/model-presets/${encodeURIComponent(item.id)}/embedding-default`,{method:'POST'});await loadPresets('',preset.name);status('embeddingStatus',`${preset.model} será el modelo predeterminado para embeddings.`)}catch(error){status('embeddingStatus',error.message)}});
 $('createConversation').addEventListener('click',async()=>{const revision_ids=Array.from(selectedSourceIds),preset_name=$('chatPreset').value,framework_id='auto',retrieval_mode=$('chatRetrieval').value,payload={revision_ids,research_project_id:currentResearchProjectId,preset_name,framework_id,retrieval_mode};if(retrieval_mode==='hybrid'){payload.embedding_preset_name=$('chatEmbeddingPreset').value;payload.embedding_artifact_ids=$('chatVectorArtifact').value?[$('chatVectorArtifact').value]:[]}status('chatStatus','Creando conversación…');try{const data=await api('/api/conversations',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});await loadConversations(data.id);setChatHeading(data.title||'Conversación');renderChatMessages([]);status('chatStatus',`Conversación creada · ${framework_id} · ${preset_name}.`)}catch(e){status('chatStatus',e.message)}});
 $('loadConversation').addEventListener('click',()=>openConversation());$('refreshConversations').addEventListener('click',()=>loadConversations());function appendOptimisticMessage(role,text){const card=document.createElement('article'),body=document.createElement('p');card.className=`chat-message ${role==='user'?'chat-message-user':'chat-message-assistant'}`;body.className='message-body';if(role==='assistant'){card.id='liveAssistantMessage';const label=document.createElement('div');label.className='message-label';label.textContent='DiscourseLens';card.append(label);const waiting=document.createElement('span');waiting.className='assistant-writing';waiting.textContent='Preparando respuesta…';body.append(waiting)}else body.textContent=text;card.append(body);$('chatMessages').append(card);$('chatMessages').scrollTop=$('chatMessages').scrollHeight;return body}
 function scrollChatIfPinned(){const root=$('chatMessages');if(root.scrollHeight-root.scrollTop-root.clientHeight<120)root.scrollTop=root.scrollHeight}
@@ -1743,7 +1724,7 @@ $('uploadProgressDialog').addEventListener('cancel',event=>event.preventDefault(
 $('search').addEventListener('click',async()=>{const revision=$('revision').value,phrase=$('query').value.trim();if(!revision||!phrase){status('searchStatus','Selecciona una revisión e introduce una frase.');return}status('searchStatus','Buscando…');$('results').replaceChildren();try{const data=await api('/api/search',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({revision_id:revision,phrase,limit:50})});status('searchStatus',`${data.total_count} párrafo(s) con coincidencias en la revisión seleccionada.`);for(const row of data.rows){const box=document.createElement('article'),title=document.createElement('span'),text=document.createElement('p'),citation=document.createElement('div');box.className='result';title.className='tag';title.textContent=`Párrafo · ${row.paragraph_id.slice(0,8)}`;text.textContent=row.text;citation.className='subtle';citation.textContent=row.citation;box.append(title,text,citation);$('results').append(box)}}catch(e){status('searchStatus',e.message)}});
 $("frequency").addEventListener('click',async()=>{const revision=$('revision').value;if(!revision)return;status('frequencyStatus','Calculando…');$('frequencyResults').replaceChildren();try{const data=await api('/api/corpus/frequency',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({revision_id:revision,limit:50})});status('frequencyStatus',`${data.total_tokens} tokens · ${data.total_types} tipos · alcance ${data.scope_id.slice(0,8)}`);for(const row of data.rows){const item=document.createElement('article');item.className='result';item.textContent=`${row.token} — ${row.count}`;$('frequencyResults').append(item)}}catch(e){status('frequencyStatus',e.message)}});
 $("previewEmbedding").addEventListener('click',async()=>{const revision=$('revision').value,preset_name=$('embeddingPreset').value.trim();if(!revision||!preset_name){status('embeddingPreviewStatus','Selecciona una revisión y el modelo de embeddings.');return}status('embeddingPreviewStatus','Consultando configuración local…');try{const data=await api('/api/retrieval/preview',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({revision_id:revision,preset_name})});status('embeddingPreviewStatus',`${data.provider_id} · ${data.model} · ${data.endpoint} · ${data.total_paragraphs} párrafos${data.offline_mode?' · proyecto offline':''}${data.blocked_by_offline_mode?' · envío bloqueado':''}`)}catch(e){status('embeddingPreviewStatus',e.message)}});
-$("buildEmbedding").addEventListener('click',async()=>{const revision=$('revision').value,preset_name=$('embeddingPreset').value.trim();if(!revision||!preset_name){status('embeddingStatus','Selecciona una revisión y el modelo de embeddings.');return}if(!$('embeddingEgress').checked){status('embeddingStatus','Confirma el envío de los párrafos al proveedor antes de continuar.');return}status('embeddingStatus','Construyendo índice…');try{const data=await api('/api/retrieval/index',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({revision_id:revision,preset_name,provider_egress_acknowledged:true})});await loadVectorIndexes();$('vectorArtifact').value=data.artifact_id;status('embeddingStatus',`Índice local creado: ${data.artifact_id} · ${data.provider_id}/${data.model}`)}catch(e){status('embeddingStatus',e.message)}});
+$("buildEmbedding").addEventListener('click',async()=>{const revision=$('revision').value,preset_name=$('embeddingPreset').value.trim();if(!revision||!preset_name){status('embeddingStatus','Selecciona una revisión y el modelo de embeddings.');return}if(!$('embeddingEgress').checked){status('embeddingStatus','Confirma el envío de los párrafos al proveedor antes de continuar.');return}status('embeddingStatus','Construyendo índice…');try{const data=await api('/api/retrieval/index',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({revision_id:revision,preset_name,provider_egress_acknowledged:true})});await loadVectorIndexes();await loadChatVectorIndexes();$('vectorArtifact').value=data.artifact_id;status('embeddingStatus',`Índice local creado: ${data.artifact_id} · ${data.provider_id}/${data.model}`)}catch(e){status('embeddingStatus',e.message)}});
 $("semanticSearch").addEventListener('click',async()=>{const revision=$('revision').value,preset_name=$('embeddingPreset').value.trim(),artifact_id=$('vectorArtifact').value,query=$('semanticQuery').value.trim();if(!revision||!preset_name||!artifact_id||!query){status('semanticStatus','Selecciona una revisión, modelo e índice, e introduce una consulta.');return}if(!$('queryEgress').checked){status('semanticStatus','Confirma el envío de la consulta al proveedor antes de continuar.');return}status('semanticStatus','Buscando pasajes…');$('semanticResults').replaceChildren();try{const data=await api('/api/retrieval/search',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({revision_id:revision,preset_name,artifact_id,query,query_egress_acknowledged:true,limit:10})});status('semanticStatus',`${data.rows.length} pasaje(s) · top‑k, no exhaustiva · alcance ${data.scope_id} · run ${data.retrieval_run_id}`);for(const row of data.rows){const item=document.createElement('article'),text=document.createElement('p'),meta=document.createElement('div');item.className='result';text.textContent=row.text;meta.className='subtle';meta.textContent=`${row.citation} · distancia ${row.distance}`;item.append(text,meta);$('semanticResults').append(item)}}catch(e){status('semanticStatus',e.message)}});
 $("ngrams").addEventListener('click',async()=>{const revision=$('revision').value,size=Number($('ngramSize').value);if(!revision)return;status('ngramStatus','Calculando n-gramas…');$('ngramResults').replaceChildren();try{const data=await api('/api/corpus/ngrams',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({revision_id:revision,size,limit:50})});status('ngramStatus',`${data.total_values} secuencia(s) · alcance ${data.scope_id.slice(0,8)}`);for(const row of data.rows){const item=document.createElement('article');item.className='result';item.textContent=`${row.ngram} — ${row.count}`;$('ngramResults').append(item)}}catch(e){status('ngramStatus',e.message)}});
 $("collocations").addEventListener('click',async()=>{const revision=$('revision').value,query=$('collocationTerm').value.trim(),window=Number($('collocationWindow').value);if(!revision||!query)return;status('collocationStatus','Calculando colocaciones…');$('collocationResults').replaceChildren();try{const data=await api('/api/corpus/collocations',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({revision_id:revision,query,window,limit:50})});status('collocationStatus',`${data.total_values} colocación(es) · alcance ${data.scope_id.slice(0,8)}`);for(const row of data.rows){const item=document.createElement('article');item.className='result';item.textContent=`${row.term} — ${row.count}`;$('collocationResults').append(item)}}catch(e){status('collocationStatus',e.message)}});
@@ -2606,15 +2587,23 @@ def create_app(
         """Fetch model IDs from a configured provider without sending project data."""
         provider_id = payload.get("provider_id")
         credential_alias = payload.get("credential_alias")
+        purpose = payload.get("purpose", "chat")
         if not isinstance(provider_id, str) or not isinstance(credential_alias, str):
             raise HTTPException(status_code=422, detail="Selecciona proveedor y credencial")
+        if not isinstance(purpose, str) or purpose not in {"chat", "embeddings", "both"}:
+            raise HTTPException(status_code=422, detail="Selecciona chat, embeddings o ambas funciones")
         if not credential_alias.strip() or len(credential_alias) > 64:
             raise HTTPException(status_code=422, detail="El alias de la credencial no es válido")
         from .model_discovery import discover_provider_models
 
         try:
             with Project.open(_request_project_root(project_path), read_only=True) as project:
-                items = discover_provider_models(project, provider_id, credential_alias.strip())
+                items = discover_provider_models(
+                    project,
+                    provider_id,
+                    credential_alias.strip(),
+                    purpose=purpose,
+                )
                 return {"items": items}
         except ProjectError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from None
@@ -2625,8 +2614,14 @@ def create_app(
         try:
             with Project.open(_request_project_root(project_path), read_only=True) as project:
                 default_name = project.default_chat_model_preset()
+                default_embedding_name = project.default_embedding_model_preset()
+                from .execution import model_role_capabilities
+
                 items = []
                 for row in project.list_model_presets():
+                    roles = model_role_capabilities(
+                        project, str(row["provider_id"]), str(row["model"])
+                    )
                     items.append(
                         {
                             "id": row["id"],
@@ -2637,10 +2632,17 @@ def create_app(
                             "reasoning": row["reasoning"],
                             "reasoning_mode": row["reasoning_mode"],
                             "reasoning_budget_tokens": row["reasoning_budget_tokens"],
+                            "can_chat": roles["chat"],
+                            "can_embeddings": roles["embeddings"],
                             "is_default": row["name"] == default_name,
+                            "is_default_embedding": row["name"] == default_embedding_name,
                         }
                     )
-                return {"items": items, "default_name": default_name}
+                return {
+                    "items": items,
+                    "default_name": default_name,
+                    "default_embedding_name": default_embedding_name,
+                }
         except ProjectError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from None
 
@@ -2670,11 +2672,28 @@ def create_app(
         except ProjectError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from None
 
+    @api.post("/model-presets/{preset_id}/embedding-default")
+    def set_default_embedding_model_preset(preset_id: str) -> dict[str, str]:
+        preset_id = _validated_resource_id(preset_id, "preset_id")
+        try:
+            with Project.open(_request_project_root(project_path)) as project:
+                preset = next(
+                    (item for item in project.list_model_presets() if item["id"] == preset_id),
+                    None,
+                )
+                if preset is None:
+                    raise HTTPException(status_code=404, detail="No se encontró ese modelo guardado")
+                project.set_default_embedding_model_preset(str(preset["name"]))
+                return {"id": preset_id, "name": str(preset["name"]), "status": "default"}
+        except ProjectError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from None
+
     @api.post("/model-capabilities")
     def save_model_capabilities(payload: dict[str, Any]) -> dict[str, str]:
-        """Save researcher-declared reasoning options for one exact model."""
+        """Save exact-model task suitability and optional reasoning controls."""
         provider_id = payload.get("provider_id")
         model = payload.get("model")
+        purpose = payload.get("purpose")
         efforts = payload.get("reasoning_efforts", [])
         modes = payload.get("reasoning_modes", [])
         if (
@@ -2687,6 +2706,8 @@ def create_app(
             or any(not isinstance(value, str) or len(value) > 32 for value in [*efforts, *modes])
             or len(efforts) > 8
             or len(modes) > 4
+            or purpose is not None
+            and (not isinstance(purpose, str) or purpose not in {"chat", "embeddings", "both"})
         ):
             raise HTTPException(status_code=422, detail="La declaración de capacidades no es válida")
         allowed_efforts = {
@@ -2707,21 +2728,72 @@ def create_app(
                 status_code=422,
                 detail="Este proveedor no declara ese tipo de control; revisa el modelo y su API.",
             )
-        if not efforts and not modes:
-            raise HTTPException(status_code=422, detail="Indica al menos una opción de razonamiento")
+        if not efforts and not modes and purpose is None:
+            raise HTTPException(status_code=422, detail="Indica la función o el pensamiento del modelo")
         try:
             with Project.open(_request_project_root(project_path)) as project:
                 existing = project.model_capability_profile(provider_id, model.strip())
-                base = existing.capabilities if existing else ModelCapabilities()
+                from .execution import _documented_model_capability_profile
+
+                documented = _documented_model_capability_profile(provider_id, model.strip())
+                base = (
+                    existing.capabilities
+                    if existing
+                    else documented.capabilities
+                    if documented
+                    else ModelCapabilities()
+                )
+                descriptor = next(
+                    (item for item in supported_providers() if item.provider_id == provider_id),
+                    None,
+                )
+                if purpose in {"chat", "both"} and (
+                    descriptor is None or not descriptor.generation
+                ):
+                    raise HTTPException(
+                        status_code=422,
+                        detail="Ese proveedor no ofrece modelos de chat.",
+                    )
+                if purpose in {"embeddings", "both"} and (
+                    descriptor is None or not descriptor.embeddings
+                ):
+                    raise HTTPException(
+                        status_code=422,
+                        detail="Ese proveedor no ofrece modelos de embeddings.",
+                    )
+                if (
+                    provider_id == "openai"
+                    and model.strip().casefold().startswith("text-embedding-")
+                    and purpose in {"chat", "both"}
+                ):
+                    raise HTTPException(
+                        status_code=422,
+                        detail="Los modelos text-embedding de OpenAI solo generan vectores.",
+                    )
+                if purpose in {"chat", "both"} and documented and not documented.capabilities.text:
+                    raise HTTPException(
+                        status_code=422,
+                        detail="Ese modelo está documentado solo para embeddings.",
+                    )
+                if purpose in {"embeddings", "both"} and documented and not documented.capabilities.embeddings:
+                    raise HTTPException(
+                        status_code=422,
+                        detail="Ese modelo está documentado solo para generación de texto.",
+                    )
+                text_capability = base.text
+                embedding_capability = base.embeddings
+                if purpose is not None:
+                    text_capability = purpose in {"chat", "both"}
+                    embedding_capability = purpose in {"embeddings", "both"}
                 capabilities = ModelCapabilities(
-                    text=base.text,
+                    text=text_capability,
                     system_prompt=base.system_prompt,
                     vision=base.vision,
                     structured_output=base.structured_output,
                     streaming=base.streaming,
-                    embeddings=base.embeddings,
-                    reasoning_efforts=tuple(efforts),
-                    reasoning_modes=tuple(modes),
+                    embeddings=embedding_capability,
+                    reasoning_efforts=tuple(efforts) if efforts else base.reasoning_efforts,
+                    reasoning_modes=tuple(modes) if modes else base.reasoning_modes,
                     generation_parameters=base.generation_parameters,
                 )
                 profile_id = project.save_model_capability_profile(
@@ -2729,8 +2801,8 @@ def create_app(
                         provider_id,
                         model.strip(),
                         capabilities,
-                        existing.assurance if existing else "UNASSESSED",
-                        existing.source_reference if existing else None,
+                        existing.assurance if existing else documented.assurance if documented else "UNASSESSED",
+                        existing.source_reference if existing else documented.source_reference if documented else None,
                     )
                 )
                 return {"id": profile_id, "status": "saved"}

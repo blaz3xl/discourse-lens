@@ -452,6 +452,22 @@ def _documented_model_capability_profile(
     provider_id: str, model: str
 ) -> ModelCapabilityProfile | None:
     """Return a documented profile for exact model IDs with published API metadata."""
+    if provider_id == "openai" and model in {
+        "text-embedding-ada-002",
+        "text-embedding-3-small",
+        "text-embedding-3-large",
+    }:
+        return ModelCapabilityProfile(
+            provider_id=provider_id,
+            model=model,
+            capabilities=ModelCapabilities(
+                text=False,
+                system_prompt=False,
+                embeddings=True,
+            ),
+            assurance="UNASSESSED",
+            source_reference="https://developers.openai.com/api/docs/guides/embeddings",
+        )
     if provider_id == "openai" and model == "gpt-6-luna":
         return ModelCapabilityProfile(
             provider_id=provider_id,
@@ -475,6 +491,45 @@ def _model_capability_profile(
     return project.model_capability_profile(provider_id, model) or (
         _documented_model_capability_profile(provider_id, model)
     )
+
+
+def model_role_capabilities(project, provider_id: str, model: str) -> dict[str, bool]:
+    """Return role suitability for an exact saved model and its provider transport."""
+    descriptor = next(
+        (item for item in supported_providers() if item.provider_id == provider_id), None
+    )
+    if descriptor is None:
+        return {"chat": False, "embeddings": False}
+    if provider_id == "openai" and model.casefold().startswith("text-embedding-"):
+        profile = _model_capability_profile(project, provider_id, model)
+        return {
+            "chat": False,
+            "embeddings": descriptor.embeddings and bool(profile and profile.capabilities.embeddings),
+        }
+    if provider_id == "openai" and model.casefold().startswith(
+        (
+            "dall-e-",
+            "sora",
+            "whisper-",
+            "tts-",
+            "gpt-image-",
+            "text-moderation-",
+            "omni-moderation-",
+            "gpt-audio-",
+            "gpt-realtime-",
+            "gpt-4o-transcribe",
+            "gpt-4o-mini-transcribe",
+            "gpt-4o-mini-tts",
+        )
+    ):
+        return {"chat": False, "embeddings": False}
+    profile = _model_capability_profile(project, provider_id, model)
+    if profile is None:
+        return {"chat": descriptor.generation, "embeddings": False}
+    return {
+        "chat": descriptor.generation and profile.capabilities.text,
+        "embeddings": descriptor.embeddings and profile.capabilities.embeddings,
+    }
 
 
 def _require_image_capability(

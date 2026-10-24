@@ -79,6 +79,7 @@ MAX_CODEBOOK_PAGE_SIZE = 100
 MAX_RESEARCH_MEMO_TITLE_CHARS = 512
 MAX_RESEARCH_MEMO_TEXT_CHARS = 4_000
 _DEFAULT_CHAT_MODEL_PRESET_KEY = "default_chat_model_preset"
+_DEFAULT_EMBEDDING_MODEL_PRESET_KEY = "default_embedding_model_preset"
 _CHAT_REASONING_PREFERENCES_KEY = "chat_reasoning_preferences"
 _SUPPORTS_DIR_FD_OPEN = os.open in os.supports_dir_fd
 _SUPPORTS_DIR_FD_DIRECTORY_CREATION = (
@@ -5584,6 +5585,7 @@ class Project:
                     (secret_reference,),
                 )
         self._repair_default_chat_model_preset()
+        self._repair_default_embedding_model_preset()
         self.db.commit()
 
     def _provider_secret_fernet_key(self) -> bytes:
@@ -5704,43 +5706,93 @@ class Project:
         return rows
 
     def _first_chat_model_preset_name(self) -> str | None:
-        from .provider_catalog import supports_generation
-
-        rows = self.db.execute(
-            "SELECT name,provider_id FROM model_presets ORDER BY name"
-        ).fetchall()
+        rows = self.db.execute("SELECT name,provider_id,model FROM model_presets ORDER BY name").fetchall()
         return next(
-            (str(row["name"]) for row in rows if supports_generation(str(row["provider_id"]))),
+            (
+                str(row["name"])
+                for row in rows
+                if self._model_preset_roles(str(row["provider_id"]), str(row["model"]))["chat"]
+            ),
             None,
         )
 
+    def _model_preset_roles(self, provider_id: str, model: str) -> dict[str, bool]:
+        from .execution import model_role_capabilities
+
+        return model_role_capabilities(self, provider_id, model)
+
     def default_chat_model_preset(self) -> str | None:
         """Return the saved default chat model, falling back to the first chat preset."""
-        from .provider_catalog import supports_generation
-
         setting = self.db.execute(
             "SELECT value FROM project_meta WHERE key=?", (_DEFAULT_CHAT_MODEL_PRESET_KEY,)
         ).fetchone()
         if setting is not None:
             preset = self.db.execute(
-                "SELECT provider_id FROM model_presets WHERE name=?", (setting["value"],)
+                "SELECT provider_id,model FROM model_presets WHERE name=?", (setting["value"],)
             ).fetchone()
-            if preset is not None and supports_generation(str(preset["provider_id"])):
+            if preset is not None and self._model_preset_roles(
+                str(preset["provider_id"]), str(preset["model"])
+            )["chat"]:
                 return str(setting["value"])
         return self._first_chat_model_preset_name()
 
     def set_default_chat_model_preset(self, name: str) -> None:
         """Set the saved default used for new chat conversations in this project."""
         self._require_writable()
-        from .provider_catalog import supports_generation
-
         preset = self.model_preset(name)
-        if not supports_generation(str(preset["provider_id"])):
+        if not self._model_preset_roles(
+            str(preset["provider_id"]), str(preset["model"])
+        )["chat"]:
             raise DocumentError("El modelo seleccionado no permite generar conversaciones.")
         self.db.execute(
             "INSERT INTO project_meta(key,value) VALUES(?,?) "
             "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
             (_DEFAULT_CHAT_MODEL_PRESET_KEY, name),
+        )
+        self.db.commit()
+
+    def _first_embedding_model_preset_name(self) -> str | None:
+        rows = self.db.execute("SELECT name,provider_id,model FROM model_presets ORDER BY name").fetchall()
+        return next(
+            (
+                str(row["name"])
+                for row in rows
+                if self._model_preset_roles(str(row["provider_id"]), str(row["model"]))[
+                    "embeddings"
+                ]
+            ),
+            None,
+        )
+
+    def default_embedding_model_preset(self) -> str | None:
+        """Return the saved embedding model, falling back to the first suitable preset."""
+        setting = self.db.execute(
+            "SELECT value FROM project_meta WHERE key=?",
+            (_DEFAULT_EMBEDDING_MODEL_PRESET_KEY,),
+        ).fetchone()
+        if setting is not None:
+            preset = self.db.execute(
+                "SELECT provider_id,model FROM model_presets WHERE name=?",
+                (setting["value"],),
+            ).fetchone()
+            if preset is not None and self._model_preset_roles(
+                str(preset["provider_id"]), str(preset["model"])
+            )["embeddings"]:
+                return str(setting["value"])
+        return self._first_embedding_model_preset_name()
+
+    def set_default_embedding_model_preset(self, name: str) -> None:
+        """Set the saved embedding model used for new semantic indexes and queries."""
+        self._require_writable()
+        preset = self.model_preset(name)
+        if not self._model_preset_roles(
+            str(preset["provider_id"]), str(preset["model"])
+        )["embeddings"]:
+            raise DocumentError("El modelo seleccionado no permite crear embeddings.")
+        self.db.execute(
+            "INSERT INTO project_meta(key,value) VALUES(?,?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            (_DEFAULT_EMBEDDING_MODEL_PRESET_KEY, name),
         )
         self.db.commit()
 
@@ -5809,17 +5861,17 @@ class Project:
 
     def _repair_default_chat_model_preset(self) -> None:
         """Choose another available chat preset if the saved default was removed."""
-        from .provider_catalog import supports_generation
-
         setting = self.db.execute(
             "SELECT value FROM project_meta WHERE key=?", (_DEFAULT_CHAT_MODEL_PRESET_KEY,)
         ).fetchone()
         if setting is None:
             return
         current = self.db.execute(
-            "SELECT provider_id FROM model_presets WHERE name=?", (setting["value"],)
+            "SELECT provider_id,model FROM model_presets WHERE name=?", (setting["value"],)
         ).fetchone()
-        if current is not None and supports_generation(str(current["provider_id"])):
+        if current is not None and self._model_preset_roles(
+            str(current["provider_id"]), str(current["model"])
+        )["chat"]:
             return
         fallback = self._first_chat_model_preset_name()
         if fallback is None:
@@ -5830,6 +5882,32 @@ class Project:
             self.db.execute(
                 "UPDATE project_meta SET value=? WHERE key=?",
                 (fallback, _DEFAULT_CHAT_MODEL_PRESET_KEY),
+            )
+
+    def _repair_default_embedding_model_preset(self) -> None:
+        """Choose another embedding preset if the saved default was removed or reclassified."""
+        setting = self.db.execute(
+            "SELECT value FROM project_meta WHERE key=?",
+            (_DEFAULT_EMBEDDING_MODEL_PRESET_KEY,),
+        ).fetchone()
+        if setting is None:
+            return
+        current = self.db.execute(
+            "SELECT provider_id,model FROM model_presets WHERE name=?", (setting["value"],)
+        ).fetchone()
+        if current is not None and self._model_preset_roles(
+            str(current["provider_id"]), str(current["model"])
+        )["embeddings"]:
+            return
+        fallback = self._first_embedding_model_preset_name()
+        if fallback is None:
+            self.db.execute(
+                "DELETE FROM project_meta WHERE key=?", (_DEFAULT_EMBEDDING_MODEL_PRESET_KEY,)
+            )
+        else:
+            self.db.execute(
+                "UPDATE project_meta SET value=? WHERE key=?",
+                (fallback, _DEFAULT_EMBEDDING_MODEL_PRESET_KEY),
             )
 
     def delete_model_preset(self, preset_id: str) -> str:
@@ -5865,6 +5943,7 @@ class Project:
                 )
         self.db.execute("DELETE FROM model_presets WHERE id=?", (preset_id,))
         self._repair_default_chat_model_preset()
+        self._repair_default_embedding_model_preset()
         self.db.commit()
         return str(row["name"])
 
@@ -5908,7 +5987,11 @@ class Project:
             raise DocumentError("chat requires an automatic or registered interpretive framework")
         if not isinstance(preset_name, str) or not preset_name.strip():
             raise DocumentError("chat requires a saved generation preset")
-        self.model_preset(preset_name.strip())
+        preset = self.model_preset(preset_name.strip())
+        if not self._model_preset_roles(
+            str(preset["provider_id"]), str(preset["model"])
+        )["chat"]:
+            raise DocumentError("chat requires a model preset with text-generation support")
         normalized_revisions = [item.strip() for item in revision_ids]
         if len(set(normalized_revisions)) != len(normalized_revisions):
             raise DocumentError("chat revision IDs must be unique")
@@ -5927,6 +6010,11 @@ class Project:
         elif retrieval_mode == "hybrid":
             if not isinstance(embedding_preset_name, str) or not embedding_preset_name.strip():
                 raise DocumentError("hybrid chat requires an embedding preset")
+            embedding_preset = self.model_preset(embedding_preset_name.strip())
+            if not self._model_preset_roles(
+                str(embedding_preset["provider_id"]), str(embedding_preset["model"])
+            )["embeddings"]:
+                raise DocumentError("hybrid chat requires an embedding-capable model preset")
             if (
                 not isinstance(embedding_artifact_ids, list)
                 or not embedding_artifact_ids
