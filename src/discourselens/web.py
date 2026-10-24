@@ -6,6 +6,7 @@ import argparse
 import asyncio
 import hmac
 import json
+import logging
 import os
 import re
 import tempfile
@@ -61,6 +62,7 @@ _CHAT_AGENT_MAX_TOOL_CALLS = 20
 _CHAT_AGENT_RESULT_CHARS = 24_000
 _CHAT_ACTIVITY_LOCK = threading.Lock()
 _CHAT_ACTIVITY: dict[str, dict[str, object]] = {}
+_LOGGER = logging.getLogger(__name__)
 _ACTIVE_CHAT_CONVERSATION: ContextVar[str | None] = ContextVar(
     "discourselens_active_chat_conversation", default=None
 )
@@ -332,6 +334,33 @@ def _chat_generation_error_message(error: Exception) -> str:
     if isinstance(error, ProjectError):
         return f"No se pudo completar la solicitud del modelo: {str(error)[:180]}"
     return "El asistente no pudo preparar una respuesta válida; vuelve a intentarlo."
+
+
+def _chat_http_error_message(detail: object, status_code: int) -> str:
+    """Extract a safe readable message from structured HTTP error details."""
+    if isinstance(detail, str) and detail.strip():
+        return detail.strip()[:300]
+    if isinstance(detail, dict):
+        for key in ("message", "detail", "error"):
+            value = detail.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()[:300]
+            if isinstance(value, dict):
+                for nested_key in ("message", "detail"):
+                    nested = value.get(nested_key)
+                    if isinstance(nested, str) and nested.strip():
+                        return nested.strip()[:300]
+    if isinstance(detail, list):
+        messages = [
+            item["msg"].strip()
+            for item in detail
+            if isinstance(item, dict)
+            and isinstance(item.get("msg"), str)
+            and item["msg"].strip()
+        ]
+        if messages:
+            return "; ".join(messages)[:300]
+    return f"El servidor rechazó la solicitud de chat (HTTP {status_code})."
 
 
 def _run_chat_agent(
@@ -1589,7 +1618,7 @@ function renderChatMessages(items){
   }
 }
 let activityPollTimer=null;
-function renderLiveActivity(activity){if(activity.state==='idle')return;const root=$('chatMessages'),parent=$('liveAssistantMessage')||root,previous=$('liveActivity'),first=!previous;if(previous)previous.remove();const details=appendActivityDetails(parent,activity,[],true);details.id='liveActivity';details.open=true;if(first&&parent===root)root.scrollTop=root.scrollHeight}
+function renderLiveActivity(activity){if(activity.state==='idle')return;const root=$('chatMessages'),parent=$('liveAssistantMessage')||root,previous=$('liveActivity');if(previous)previous.remove();const details=appendActivityDetails(parent,activity,[],true);details.id='liveActivity';details.open=true;requestAnimationFrame(()=>{root.scrollTop=root.scrollHeight})}
 function startActivityPolling(conversationId){if(activityPollTimer)clearInterval(activityPollTimer);renderLiveActivity({state:'running',metadata:{preset_name:$('chatPreset').value,reasoning:$('chatReasoning').selectedOptions[0]?.textContent,retrieval_mode:$('chatRetrieval').value},events:[{text:'Conectando con el modelo y preparando las herramientas.'}]});const poll=async()=>{try{const activity=await api(`/api/conversations/${encodeURIComponent(conversationId)}/activity`);renderLiveActivity(activity)}catch{}};activityPollTimer=setInterval(poll,1100);void poll()}
 function stopActivityPolling(){if(activityPollTimer){clearInterval(activityPollTimer);activityPollTimer=null}}
 async function openConversation(id=$('chatConversation').value){if(!id)return;try{const data=await api(`/api/conversations/${encodeURIComponent(id)}/messages`);renderChatMessages(data.items);requestAnimationFrame(()=>{const messages=$('chatMessages');messages.scrollTop=messages.scrollHeight});activeConversationRevisionIds=Array.isArray(data.conversation.revision_ids)?data.conversation.revision_ids:[];if(data.conversation.research_project_id&&data.conversation.research_project_id!==currentResearchProjectId){currentResearchProjectId=data.conversation.research_project_id;$('researchProject').value=currentResearchProjectId;sourceSelectionInitialized=false}selectedSourceIds=new Set(activeConversationRevisionIds);$('chatRevision').value=data.conversation.revision_ids[0]||'';await loadDocs();$('chatPreset').value=data.conversation.preset_name;$('chatPreset').disabled=true;await loadChatReasoning();$('chatRetrieval').value=data.conversation.retrieval_mode;if(data.conversation.embedding_preset_name)$('chatEmbeddingPreset').value=data.conversation.embedding_preset_name;await loadChatVectorIndexes();if(data.conversation.embedding_artifact_ids?.length)$('chatVectorArtifact').value=data.conversation.embedding_artifact_ids[0];$('chatRetrieval').dispatchEvent(new Event('change'));status('chatStatus',`${data.items.length/2|0} turno(s) · conversación guardada con citas y análisis.`)}catch(e){status('chatStatus',e.message)}}
@@ -1618,7 +1647,7 @@ function scrollChatIfPinned(){const root=$('chatMessages');if(root.scrollHeight-
 function clearChatQuestion(){const field=$('chatQuestion');field.value='';field.style.height='auto';field.style.overflowY='hidden'}
 function restoreChatQuestion(value){const field=$('chatQuestion');field.value=value;field.style.height='auto';field.style.height=`${Math.min(field.scrollHeight,240)}px`;field.style.overflowY=field.scrollHeight>240?'auto':'hidden'}
 $('chatQuestion').addEventListener('input',()=>{const field=$('chatQuestion');field.style.height='auto';field.style.height=`${Math.min(field.scrollHeight,240)}px`});
-$('loadConversation').addEventListener('click',()=>openConversation());$('refreshConversations').addEventListener('click',()=>loadConversations());$('sendChat').addEventListener('click',async()=>{let conversation_id=$('chatConversation').value;const question=$('chatQuestion').value.trim();if(!question){status('chatStatus','Escribe una pregunta o pega el texto que quieres analizar.');return}if(!conversation_id&&!$('chatPreset').value){status('chatStatus','Configura un modelo de chat en Configuración y herramientas.');return}clearChatQuestion();if(!conversation_id){const revision_ids=Array.from(selectedSourceIds),preset_name=$('chatPreset').value,framework_id='auto',retrieval_mode=revision_ids.length?$('chatRetrieval').value:'lexical';try{const created=await api('/api/conversations',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({revision_ids,research_project_id:currentResearchProjectId,preset_name,framework_id,retrieval_mode,...(retrieval_mode==='hybrid'?{embedding_preset_name:$('chatEmbeddingPreset').value,embedding_artifact_ids:$('chatVectorArtifact').value?[$('chatVectorArtifact').value]:[]}:{})})});conversation_id=created.id;setChatHeading(created.title||question.slice(0,80));activeConversationRevisionIds=Array.isArray(created.revision_ids)?created.revision_ids:revision_ids;await loadConversations(conversation_id)}catch(e){restoreChatQuestion(question);status('chatStatus',e.message);return}}const payload={question,model_egress_acknowledged:true,embedding_egress_acknowledged:true,...($('chatReasoning').value.startsWith('effort:')?{reasoning:$('chatReasoning').value.slice(7)}:{}),...($('chatReasoning').value.startsWith('mode:')?{reasoning_mode:$('chatReasoning').value.slice(5)}:{})};$('sendChat').disabled=true;$('chatQuestion').disabled=true;$('file').disabled=true;$('composerPlus').setAttribute('aria-disabled','true');appendOptimisticMessage('user',question);const answer=appendOptimisticMessage('assistant','');const answerText=document.createTextNode('');answer.replaceChildren(answer.querySelector('.assistant-writing'));const cursor=document.createElement('span');cursor.className='assistant-cursor';cursor.setAttribute('aria-hidden','true');let received=false,finished=false;startActivityPolling(conversation_id);status('chatStatus','El asistente está preparando una respuesta…');try{const headers={'Content-Type':'application/json','Accept':'text/event-stream'};if(token)headers.Authorization=`Bearer ${token}`;const response=await fetch(`/api/conversations/${encodeURIComponent(conversation_id)}/messages/stream`,{method:'POST',credentials:'same-origin',headers,body:JSON.stringify(payload)});if(!response.ok){let message='No se pudo completar la respuesta.';try{message=(await response.json()).detail||message}catch{}throw new Error(message)}if(!response.body)throw new Error('El navegador no pudo abrir la respuesta en streaming.');const reader=response.body.getReader(),decoder=new TextDecoder();let buffer='';const handleEvent=eventText=>{const line=eventText.split('\n').find(item=>item.startsWith('data:'));if(!line)return;const event=JSON.parse(line.slice(5).trim());if(event.type==='delta'){if(!received){received=true;answer.replaceChildren(answerText,cursor)}answerText.textContent+=event.text;scrollChatIfPinned()}else if(event.type==='error')throw new Error(event.message||'No se pudo completar la respuesta.');else if(event.type==='complete')finished=true};while(true){const {value,done}=await reader.read();if(done)break;buffer+=decoder.decode(value,{stream:true});let boundary;while((boundary=buffer.indexOf('\n\n'))>=0){const eventText=buffer.slice(0,boundary);buffer=buffer.slice(boundary+2);handleEvent(eventText)}}buffer+=decoder.decode();if(buffer.trim())handleEvent(buffer);if(!finished)throw new Error('La conexión se cerró antes de terminar la respuesta.');stopActivityPolling();await loadConversations(conversation_id);status('chatStatus','Respuesta completada.')}catch(e){stopActivityPolling();const liveActivity=$('liveActivity');if(liveActivity)liveActivity.remove();if(!received){answer.textContent=e.message}else answer.replaceChildren(answerText);status('chatStatus',e.message);try{await loadConversations(conversation_id,false)}catch{}}finally{stopActivityPolling();$('chatQuestion').disabled=false;$('file').disabled=false;$('composerPlus').setAttribute('aria-disabled','false');$('sendChat').disabled=false;$('chatQuestion').focus()}});
+$('loadConversation').addEventListener('click',()=>openConversation());$('refreshConversations').addEventListener('click',()=>loadConversations());$('sendChat').addEventListener('click',async()=>{let conversation_id=$('chatConversation').value;const question=$('chatQuestion').value.trim();if(!question){status('chatStatus','Escribe una pregunta o pega el texto que quieres analizar.');return}if(!conversation_id&&!$('chatPreset').value){status('chatStatus','Configura un modelo de chat en Configuración y herramientas.');return}clearChatQuestion();if(!conversation_id){const revision_ids=Array.from(selectedSourceIds),preset_name=$('chatPreset').value,framework_id='auto',retrieval_mode=revision_ids.length?$('chatRetrieval').value:'lexical';try{const created=await api('/api/conversations',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({revision_ids,research_project_id:currentResearchProjectId,preset_name,framework_id,retrieval_mode,...(retrieval_mode==='hybrid'?{embedding_preset_name:$('chatEmbeddingPreset').value,embedding_artifact_ids:$('chatVectorArtifact').value?[$('chatVectorArtifact').value]:[]}:{})})});conversation_id=created.id;setChatHeading(created.title||question.slice(0,80));activeConversationRevisionIds=Array.isArray(created.revision_ids)?created.revision_ids:revision_ids;await loadConversations(conversation_id)}catch(e){restoreChatQuestion(question);status('chatStatus',e.message);return}}const payload={question,model_egress_acknowledged:true,embedding_egress_acknowledged:true,...($('chatReasoning').value.startsWith('effort:')?{reasoning:$('chatReasoning').value.slice(7)}:{}),...($('chatReasoning').value.startsWith('mode:')?{reasoning_mode:$('chatReasoning').value.slice(5)}:{})};$('sendChat').disabled=true;$('chatQuestion').disabled=true;$('file').disabled=true;$('composerPlus').setAttribute('aria-disabled','true');appendOptimisticMessage('user',question);const answer=appendOptimisticMessage('assistant','');const answerText=document.createTextNode('');answer.replaceChildren(answer.querySelector('.assistant-writing'));const cursor=document.createElement('span');cursor.className='assistant-cursor';cursor.setAttribute('aria-hidden','true');let received=false,finished=false;startActivityPolling(conversation_id);status('chatStatus','El asistente está preparando una respuesta…');try{const headers={'Content-Type':'application/json','Accept':'text/event-stream'};if(token)headers.Authorization=`Bearer ${token}`;const response=await fetch(`/api/conversations/${encodeURIComponent(conversation_id)}/messages/stream`,{method:'POST',credentials:'same-origin',headers,body:JSON.stringify(payload)});if(!response.ok){let message=`No se pudo completar la respuesta (HTTP ${response.status}).`;try{const failure=await response.json(),detail=failure.detail;if(typeof detail==='string'&&detail)message=detail;else if(detail&&typeof detail==='object'){for(const key of ['message','detail','error']){const value=detail[key];if(typeof value==='string'&&value){message=value;break}}}}catch{}throw new Error(message)}if(!response.body)throw new Error('El navegador no pudo abrir la respuesta en streaming.');const reader=response.body.getReader(),decoder=new TextDecoder();let buffer='';const handleEvent=eventText=>{const line=eventText.split('\n').find(item=>item.startsWith('data:'));if(!line)return;const event=JSON.parse(line.slice(5).trim());if(event.type==='delta'){if(!received){received=true;answer.replaceChildren(answerText,cursor)}answerText.textContent+=event.text;scrollChatIfPinned()}else if(event.type==='error')throw new Error(event.message||'No se pudo completar la respuesta.');else if(event.type==='complete')finished=true};while(true){const {value,done}=await reader.read();if(done)break;buffer+=decoder.decode(value,{stream:true});let boundary;while((boundary=buffer.indexOf('\n\n'))>=0){const eventText=buffer.slice(0,boundary);buffer=buffer.slice(boundary+2);handleEvent(eventText)}}buffer+=decoder.decode();if(buffer.trim())handleEvent(buffer);if(!finished)throw new Error('La conexión se cerró antes de terminar la respuesta.');stopActivityPolling();await loadConversations(conversation_id);status('chatStatus','Respuesta completada.')}catch(e){stopActivityPolling();const liveActivity=$('liveActivity');if(liveActivity)liveActivity.remove();if(!received){answer.textContent=e.message}else answer.replaceChildren(answerText);status('chatStatus',e.message);try{await loadConversations(conversation_id,false)}catch{}}finally{stopActivityPolling();$('chatQuestion').disabled=false;$('file').disabled=false;$('composerPlus').setAttribute('aria-disabled','false');$('sendChat').disabled=false;$('chatQuestion').focus()}});
 function updateUploadProgress(file,index,total,percent,phase){
   const dialog=$('uploadProgressDialog'),progress=$('uploadProgressBar');
   if(!dialog.open)dialog.showModal();
@@ -2434,13 +2463,24 @@ def create_app(
             try:
                 result = send_chat_message(conversation_id, stream_payload)
             except HTTPException as exc:
-                detail = exc.detail if isinstance(exc.detail, str) else "No se pudo completar la respuesta."
-                publish({"type": "error", "message": detail})
-            except Exception:  # noqa: BLE001 - return provider failures as readable chat events.
+                if not isinstance(exc.detail, str):
+                    _LOGGER.warning(
+                        "Chat stream HTTP %s returned structured detail (%s)",
+                        exc.status_code,
+                        type(exc.detail).__name__,
+                    )
                 publish(
                     {
                         "type": "error",
-                        "message": "No se pudo completar la respuesta; vuelve a intentarlo.",
+                        "message": _chat_http_error_message(exc.detail, exc.status_code),
+                    }
+                )
+            except Exception as exc:  # noqa: BLE001 - return provider failures as readable chat events.
+                _LOGGER.error("Chat stream failed with %s", type(exc).__name__)
+                publish(
+                    {
+                        "type": "error",
+                        "message": _chat_generation_error_message(exc),
                     }
                 )
             else:
