@@ -85,6 +85,18 @@ _SUPPORTS_DIR_FD_DIRECTORY_CREATION = (
     _SUPPORTS_DIR_FD_OPEN and os.mkdir in os.supports_dir_fd and os.stat in os.supports_dir_fd
 )
 
+
+def _chat_title_from_prompt(prompt: str) -> str:
+    """Create a short, readable chat title from its opening question."""
+    title = " ".join(prompt.split()).strip(" \t\r\n-—")
+    if not title:
+        return "Conversación"
+    if len(title) > 88:
+        shortened = title[:85].rsplit(" ", 1)[0].rstrip(" .,;:!?—-")
+        title = f"{shortened or title[:85].rstrip()}…"
+    return title
+
+
 if TYPE_CHECKING:
     from .analysis import (
         AnalysisResult,
@@ -5975,6 +5987,31 @@ class Project:
             "research_project_id": row["research_project_id"],
         }
 
+    def touch_chat_conversation(
+        self, conversation_id: str, *, title_from_prompt: str | None = None
+    ) -> None:
+        """Persist last activity and set a concise title for a new conversation."""
+        self._require_writable()
+        if not isinstance(conversation_id, str) or not conversation_id.strip():
+            raise DocumentError("chat conversation ID is invalid")
+        if title_from_prompt is not None and (
+            not isinstance(title_from_prompt, str) or len(title_from_prompt) > 8_000
+        ):
+            raise DocumentError("chat conversation title source is invalid")
+        row = self.db.execute(
+            "SELECT title FROM chat_conversations WHERE id=?", (conversation_id,)
+        ).fetchone()
+        if row is None:
+            raise DocumentError("unknown chat conversation")
+        title = str(row["title"])
+        if title == "Nueva conversación" and title_from_prompt is not None:
+            title = _chat_title_from_prompt(title_from_prompt)
+        self.db.execute(
+            "UPDATE chat_conversations SET title=?,updated_at=? WHERE id=?",
+            (title, now(), conversation_id),
+        )
+        self.db.commit()
+
     def list_chat_conversations(self, *, limit: int = 100) -> list[dict[str, object]]:
         if type(limit) is not int or not 1 <= limit <= 500:
             raise DocumentError("chat listing limit must be between 1 and 500")
@@ -6068,7 +6105,7 @@ class Project:
             title_row = self.db.execute(
                 "SELECT title FROM chat_conversations WHERE id=?", (conversation_id,)
             ).fetchone()
-            title = question.strip().splitlines()[0][:120]
+            title = _chat_title_from_prompt(question)
             self.db.execute(
                 "UPDATE chat_conversations SET title=?,updated_at=? WHERE id=?",
                 (title if title_row["title"] == "Nueva conversación" else title_row["title"], created, conversation_id),

@@ -25,7 +25,14 @@ from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from starlette.concurrency import run_in_threadpool
 
-from .errors import ModelProviderError, ProjectError
+from .errors import (
+    AuthenticationError,
+    ModelProviderError,
+    ModelResponseError,
+    ProjectError,
+    QuotaError,
+    RateLimitError,
+)
 from .frameworks import FRAMEWORK_REVIEWS
 from .models import (
     CredentialReference,
@@ -262,6 +269,33 @@ def _replace_internal_citation_ids(answer: str, id_citations: dict[str, str]) ->
     return answer
 
 
+def _chat_generation_error_message(error: Exception) -> str:
+    """Map provider failures to useful messages without exposing response bodies."""
+    if isinstance(error, AuthenticationError):
+        return "El proveedor rechazó la clave guardada. Revisa la credencial en Ajustes."
+    if isinstance(error, QuotaError):
+        return "La cuenta del proveedor alcanzó su límite de uso o facturación."
+    if isinstance(error, RateLimitError):
+        return "El proveedor limitó las solicitudes. Espera un momento y vuelve a intentarlo."
+    if isinstance(error, ModelResponseError):
+        return "El proveedor respondió de forma incompleta o inesperada. Vuelve a intentarlo."
+    if isinstance(error, ModelProviderError):
+        detail = str(error)
+        match = re.fullmatch(r"([a-z0-9-]+) generation HTTP error: (\d{3})", detail)
+        if match:
+            provider = match.group(1).replace("-", " ").capitalize()
+            return (
+                f"{provider} rechazó la solicitud (HTTP {match.group(2)}). "
+                "Comprueba el modelo y sus opciones de razonamiento."
+            )
+        return f"El proveedor no pudo completar la solicitud: {detail[:180]}"
+    if isinstance(error, json.JSONDecodeError):
+        return "El modelo devolvió un plan con formato no válido. Vuelve a intentarlo."
+    if isinstance(error, ProjectError):
+        return f"No se pudo completar la solicitud del modelo: {str(error)[:180]}"
+    return "El asistente no pudo preparar una respuesta válida; vuelve a intentarlo."
+
+
 def _run_chat_agent(
     project: Project,
     project_root: Path,
@@ -403,10 +437,10 @@ def _run_chat_agent(
                     preset_name, prompt, **cast(Any, generation_options)
                 ).response.text
             plan = json.loads(response)
-        except (ProjectError, TypeError, json.JSONDecodeError, RecursionError):
+        except (ProjectError, TypeError, json.JSONDecodeError, RecursionError) as exc:
             raise HTTPException(
                 status_code=502,
-                detail="El asistente no pudo preparar una respuesta válida; vuelve a intentarlo.",
+                detail=_chat_generation_error_message(exc),
             ) from None
         if (
             isinstance(plan, dict)
@@ -1442,7 +1476,7 @@ async function loadChatReasoning(){const select=$('chatReasoning');select.replac
 async function loadChatVectorIndexes(){const revision=$('chatRevision').value,select=$('chatVectorArtifact');select.replaceChildren();if(!revision)return;try{const data=await api(`/api/retrieval/indexes?revision_id=${encodeURIComponent(revision)}`);for(const item of data.items){const option=document.createElement('option');option.value=item.artifact_id;option.textContent=`${item.provider_id}/${item.model} · ${item.artifact_id.slice(0,8)}`;select.append(option)}if(!data.items.length){const option=document.createElement('option');option.value='';option.textContent='No hay índice para esta revisión';select.append(option)}}catch(e){status('chatStatus',e.message)}}
 function renderConversationTree(items=conversationItems,selected=$('chatConversation').value){const tree=$('conversationTree');if(!tree)return;tree.replaceChildren();const groups=new Map();for(const project of researchProjects)groups.set(String(project.id),{project,items:[]});for(const item of items){const key=String(item.research_project_id||'');if(!groups.has(key))groups.set(key,{project:{id:key,name:key?'Proyecto desconocido':'Sin proyecto'},items:[]});groups.get(key).items.push(item)}for(const group of groups.values()){const details=document.createElement('details'),summary=document.createElement('summary'),name=document.createElement('span'),count=document.createElement('span'),list=document.createElement('div');details.className='conversation-project';details.open=String(group.project.id)===String(currentResearchProjectId)||group.items.some(item=>String(item.id)===String(selected));summary.className='conversation-project-summary';name.className='conversation-project-name';name.textContent=group.project.name;count.className='conversation-project-count';count.textContent=String(group.items.length);summary.append(name,count);list.className='conversation-tree-list';if(!group.items.length){const empty=document.createElement('div');empty.className='conversation-tree-empty';empty.textContent='Aún no hay conversaciones';list.append(empty)}for(const item of group.items){const row=document.createElement('div'),open=document.createElement('button'),remove=document.createElement('button'),icon=document.createElementNS('http://www.w3.org/2000/svg','svg'),path=document.createElementNS('http://www.w3.org/2000/svg','path');row.className='conversation-tree-row';open.type='button';open.className='conversation-tree-open';open.textContent=item.title||'Conversación';open.title=item.title||'Conversación';open.setAttribute('aria-current',String(item.id)===String(selected)?'true':'false');open.addEventListener('click',async()=>{const select=$('chatConversation');select.value=item.id;await openConversation(item.id);setChatHeading(item.title||'Conversación');renderConversationTree(conversationItems,item.id)});remove.type='button';remove.className='conversation-tree-delete';remove.setAttribute('aria-label','Eliminar conversación: '+(item.title||'Conversación'));remove.title='Eliminar conversación';icon.setAttribute('viewBox','0 0 24 24');icon.setAttribute('aria-hidden','true');icon.classList.add('icon');path.setAttribute('d','M4 7h16M10 11v6m4-6v6M5 7l1 13h12l1-13M9 7V4h6v3');icon.append(path);remove.append(icon);remove.addEventListener('click',()=>deleteConversationFromTree(item,remove));row.append(open,remove);list.append(row)}details.append(summary,list);tree.append(details)}}
 async function deleteConversationFromTree(item,button){const conversationId=String(item.id),active=$('chatConversation').value===conversationId;if(active&&$('sendChat').disabled){status('chatStatus','Espera a que termine la respuesta antes de borrar esta conversación.');return}if(!window.confirm('¿Eliminar la conversación «'+(item.title||'Conversación')+'»? Se borrarán sus mensajes; el proyecto y sus fuentes se conservarán.'))return;button.disabled=true;try{await api('/api/conversations/'+encodeURIComponent(conversationId),{method:'DELETE'});if(active){$('chatConversation').value='';activeConversationRevisionIds=[];$('chatPreset').disabled=false;renderChatMessages([]);setChatHeading();await loadDocs()}const keepSelected=active?'':$('chatConversation').value;await loadConversations(keepSelected);status('chatStatus','Conversación eliminada.')}catch(error){status('chatStatus',error.message);button.disabled=false}}
-async function loadConversations(selected=''){const select=$('chatConversation');select.replaceChildren(new Option('Nueva conversación',''));const data=await api('/api/conversations');conversationItems=data.items;for(const item of conversationItems){const option=document.createElement('option');option.value=item.id;option.textContent=item.title;select.append(option)}renderConversationTree(conversationItems,selected);if(selected&&conversationItems.some(item=>String(item.id)===String(selected))){select.value=selected;await openConversation(selected);setChatHeading(conversationItems.find(item=>String(item.id)===String(selected))?.title||'Conversación');renderConversationTree(conversationItems,selected)}else{select.value='';renderConversationTree(conversationItems,'');if(selected){activeConversationRevisionIds=[];$('chatPreset').disabled=false;setChatHeading();renderChatMessages([])}}}
+async function loadConversations(selected='',open=true){const select=$('chatConversation'),current=selected||select.value;select.replaceChildren(new Option('Nueva conversación',''));const data=await api('/api/conversations');conversationItems=data.items;for(const item of conversationItems){const option=document.createElement('option');option.value=item.id;option.textContent=item.title;select.append(option)}const active=conversationItems.some(item=>String(item.id)===String(current))?current:(conversationItems[0]?.id||'');if(active){select.value=active;if(open)await openConversation(active);setChatHeading(conversationItems.find(item=>String(item.id)===String(active))?.title||'Conversación');renderConversationTree(conversationItems,active)}else{select.value='';renderConversationTree(conversationItems,'');if(current){activeConversationRevisionIds=[];$('chatPreset').disabled=false;setChatHeading();renderChatMessages([])}}}
 function appendActivityDetails(container,activity,toolResults=[],live=false){
   const details=document.createElement('details'),summary=document.createElement('summary'),body=document.createElement('div');
   details.className='assistant-activity';summary.textContent=live&&activity.state==='running'?'DiscourseLens está trabajando…':'Actividad de DiscourseLens';body.className='assistant-activity-body';
@@ -1500,7 +1534,7 @@ $('createConversation').addEventListener('click',async()=>{const revision_ids=Ar
 $('loadConversation').addEventListener('click',()=>openConversation());$('refreshConversations').addEventListener('click',()=>loadConversations());function appendOptimisticMessage(role,text){const card=document.createElement('article'),body=document.createElement('p');card.className=`chat-message ${role==='user'?'chat-message-user':'chat-message-assistant'}`;body.className='message-body';if(role==='assistant'){card.id='liveAssistantMessage';const label=document.createElement('div');label.className='message-label';label.textContent='DiscourseLens';card.append(label);const waiting=document.createElement('span');waiting.className='assistant-writing';waiting.textContent='Preparando respuesta…';body.append(waiting)}else body.textContent=text;card.append(body);$('chatMessages').append(card);$('chatMessages').scrollTop=$('chatMessages').scrollHeight;return body}
 function scrollChatIfPinned(){const root=$('chatMessages');if(root.scrollHeight-root.scrollTop-root.clientHeight<120)root.scrollTop=root.scrollHeight}
 $('chatQuestion').addEventListener('input',()=>{const field=$('chatQuestion');field.style.height='auto';field.style.height=`${Math.min(field.scrollHeight,240)}px`});
-$('loadConversation').addEventListener('click',()=>openConversation());$('refreshConversations').addEventListener('click',()=>loadConversations());$('sendChat').addEventListener('click',async()=>{let conversation_id=$('chatConversation').value;const question=$('chatQuestion').value.trim();if(!question){status('chatStatus','Escribe una pregunta o pega el texto que quieres analizar.');return}if(!conversation_id){const revision_ids=Array.from(selectedSourceIds),preset_name=$('chatPreset').value,framework_id='auto',retrieval_mode=revision_ids.length?$('chatRetrieval').value:'lexical';if(!preset_name){status('chatStatus','Configura un modelo de chat en Configuración y herramientas.');return}try{const created=await api('/api/conversations',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({revision_ids,research_project_id:currentResearchProjectId,preset_name,framework_id,retrieval_mode,...(retrieval_mode==='hybrid'?{embedding_preset_name:$('chatEmbeddingPreset').value,embedding_artifact_ids:$('chatVectorArtifact').value?[$('chatVectorArtifact').value]:[]}:{})})});conversation_id=created.id;setChatHeading(created.title||question.slice(0,80));activeConversationRevisionIds=Array.isArray(created.revision_ids)?created.revision_ids:revision_ids;await loadConversations(conversation_id)}catch(e){status('chatStatus',e.message);return}}const scopeRevisionIds=activeConversationRevisionIds;const egressMessage=scopeRevisionIds.length?'Tu pregunta y los pasajes relevantes se enviarán al modelo de chat configurado. Si el asistente usa búsqueda semántica, también podrá enviarse la consulta al proveedor de embeddings. ¿Continuar?':'Tu mensaje, incluido cualquier texto pegado, se enviará al modelo de chat configurado. ¿Continuar?';if(!modelEgressConfirmed||(!embeddingEgressConfirmed&&scopeRevisionIds.length)){if(!window.confirm(egressMessage))return;modelEgressConfirmed=true;embeddingEgressConfirmed=true;sessionStorage.setItem('discourselens-model-egress','true');sessionStorage.setItem('discourselens-embedding-egress','true')}const payload={question,model_egress_acknowledged:true,embedding_egress_acknowledged:true,...($('chatReasoning').value.startsWith('effort:')?{reasoning:$('chatReasoning').value.slice(7)}:{}),...($('chatReasoning').value.startsWith('mode:')?{reasoning_mode:$('chatReasoning').value.slice(5)}:{})};$('sendChat').disabled=true;$('chatQuestion').disabled=true;$('file').disabled=true;$('composerPlus').setAttribute('aria-disabled','true');appendOptimisticMessage('user',question);const answer=appendOptimisticMessage('assistant','');const answerText=document.createTextNode('');answer.replaceChildren(answer.querySelector('.assistant-writing'));const cursor=document.createElement('span');cursor.className='assistant-cursor';cursor.setAttribute('aria-hidden','true');let received=false,finished=false;startActivityPolling(conversation_id);status('chatStatus','El asistente está preparando una respuesta…');try{const headers={'Content-Type':'application/json','Accept':'text/event-stream'};if(token)headers.Authorization=`Bearer ${token}`;const response=await fetch(`/api/conversations/${encodeURIComponent(conversation_id)}/messages/stream`,{method:'POST',credentials:'same-origin',headers,body:JSON.stringify(payload)});if(!response.ok){let message='No se pudo completar la respuesta.';try{message=(await response.json()).detail||message}catch{}throw new Error(message)}if(!response.body)throw new Error('El navegador no pudo abrir la respuesta en streaming.');const reader=response.body.getReader(),decoder=new TextDecoder();let buffer='';const handleEvent=eventText=>{const line=eventText.split('\n').find(item=>item.startsWith('data:'));if(!line)return;const event=JSON.parse(line.slice(5).trim());if(event.type==='delta'){if(!received){received=true;answer.replaceChildren(answerText,cursor)}answerText.textContent+=event.text;scrollChatIfPinned()}else if(event.type==='error')throw new Error(event.message||'No se pudo completar la respuesta.');else if(event.type==='complete')finished=true};while(true){const {value,done}=await reader.read();if(done)break;buffer+=decoder.decode(value,{stream:true});let boundary;while((boundary=buffer.indexOf('\n\n'))>=0){const eventText=buffer.slice(0,boundary);buffer=buffer.slice(boundary+2);handleEvent(eventText)}}buffer+=decoder.decode();if(buffer.trim())handleEvent(buffer);if(!finished)throw new Error('La conexión se cerró antes de terminar la respuesta.');stopActivityPolling();await openConversation(conversation_id);$('chatQuestion').value='';$('chatQuestion').style.height='auto';$('chatQuestion').style.overflowY='hidden';status('chatStatus','Respuesta completada.')}catch(e){if(!received){answer.textContent=e.message}else answer.replaceChildren(answerText);status('chatStatus',e.message)}finally{stopActivityPolling();$('chatQuestion').disabled=false;$('file').disabled=false;$('composerPlus').setAttribute('aria-disabled','false');$('sendChat').disabled=false;$('chatQuestion').focus()}});
+$('loadConversation').addEventListener('click',()=>openConversation());$('refreshConversations').addEventListener('click',()=>loadConversations());$('sendChat').addEventListener('click',async()=>{let conversation_id=$('chatConversation').value;const question=$('chatQuestion').value.trim();if(!question){status('chatStatus','Escribe una pregunta o pega el texto que quieres analizar.');return}if(!conversation_id){const revision_ids=Array.from(selectedSourceIds),preset_name=$('chatPreset').value,framework_id='auto',retrieval_mode=revision_ids.length?$('chatRetrieval').value:'lexical';if(!preset_name){status('chatStatus','Configura un modelo de chat en Configuración y herramientas.');return}try{const created=await api('/api/conversations',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({revision_ids,research_project_id:currentResearchProjectId,preset_name,framework_id,retrieval_mode,...(retrieval_mode==='hybrid'?{embedding_preset_name:$('chatEmbeddingPreset').value,embedding_artifact_ids:$('chatVectorArtifact').value?[$('chatVectorArtifact').value]:[]}:{})})});conversation_id=created.id;setChatHeading(created.title||question.slice(0,80));activeConversationRevisionIds=Array.isArray(created.revision_ids)?created.revision_ids:revision_ids;await loadConversations(conversation_id)}catch(e){status('chatStatus',e.message);return}}const scopeRevisionIds=activeConversationRevisionIds;const egressMessage=scopeRevisionIds.length?'Tu pregunta y los pasajes relevantes se enviarán al modelo de chat configurado. Si el asistente usa búsqueda semántica, también podrá enviarse la consulta al proveedor de embeddings. ¿Continuar?':'Tu mensaje, incluido cualquier texto pegado, se enviará al modelo de chat configurado. ¿Continuar?';if(!modelEgressConfirmed||(!embeddingEgressConfirmed&&scopeRevisionIds.length)){if(!window.confirm(egressMessage))return;modelEgressConfirmed=true;embeddingEgressConfirmed=true;sessionStorage.setItem('discourselens-model-egress','true');sessionStorage.setItem('discourselens-embedding-egress','true')}const payload={question,model_egress_acknowledged:true,embedding_egress_acknowledged:true,...($('chatReasoning').value.startsWith('effort:')?{reasoning:$('chatReasoning').value.slice(7)}:{}),...($('chatReasoning').value.startsWith('mode:')?{reasoning_mode:$('chatReasoning').value.slice(5)}:{})};$('sendChat').disabled=true;$('chatQuestion').disabled=true;$('file').disabled=true;$('composerPlus').setAttribute('aria-disabled','true');appendOptimisticMessage('user',question);const answer=appendOptimisticMessage('assistant','');const answerText=document.createTextNode('');answer.replaceChildren(answer.querySelector('.assistant-writing'));const cursor=document.createElement('span');cursor.className='assistant-cursor';cursor.setAttribute('aria-hidden','true');let received=false,finished=false;startActivityPolling(conversation_id);status('chatStatus','El asistente está preparando una respuesta…');try{const headers={'Content-Type':'application/json','Accept':'text/event-stream'};if(token)headers.Authorization=`Bearer ${token}`;const response=await fetch(`/api/conversations/${encodeURIComponent(conversation_id)}/messages/stream`,{method:'POST',credentials:'same-origin',headers,body:JSON.stringify(payload)});if(!response.ok){let message='No se pudo completar la respuesta.';try{message=(await response.json()).detail||message}catch{}throw new Error(message)}if(!response.body)throw new Error('El navegador no pudo abrir la respuesta en streaming.');const reader=response.body.getReader(),decoder=new TextDecoder();let buffer='';const handleEvent=eventText=>{const line=eventText.split('\n').find(item=>item.startsWith('data:'));if(!line)return;const event=JSON.parse(line.slice(5).trim());if(event.type==='delta'){if(!received){received=true;answer.replaceChildren(answerText,cursor)}answerText.textContent+=event.text;scrollChatIfPinned()}else if(event.type==='error')throw new Error(event.message||'No se pudo completar la respuesta.');else if(event.type==='complete')finished=true};while(true){const {value,done}=await reader.read();if(done)break;buffer+=decoder.decode(value,{stream:true});let boundary;while((boundary=buffer.indexOf('\n\n'))>=0){const eventText=buffer.slice(0,boundary);buffer=buffer.slice(boundary+2);handleEvent(eventText)}}buffer+=decoder.decode();if(buffer.trim())handleEvent(buffer);if(!finished)throw new Error('La conexión se cerró antes de terminar la respuesta.');stopActivityPolling();await loadConversations(conversation_id);$('chatQuestion').value='';$('chatQuestion').style.height='auto';$('chatQuestion').style.overflowY='hidden';status('chatStatus','Respuesta completada.')}catch(e){stopActivityPolling();const liveActivity=$('liveActivity');if(liveActivity)liveActivity.remove();if(!received){answer.textContent=e.message}else answer.replaceChildren(answerText);status('chatStatus',e.message);try{await loadConversations(conversation_id,false)}catch{}}finally{stopActivityPolling();$('chatQuestion').disabled=false;$('file').disabled=false;$('composerPlus').setAttribute('aria-disabled','false');$('sendChat').disabled=false;$('chatQuestion').focus()}});
 async function uploadSelectedFile(){
   const files=Array.from($('file').files);
   if(!files.length)return;
@@ -2042,7 +2076,8 @@ def create_app(
     @api.get("/conversations/{conversation_id}/messages")
     def conversation_messages(conversation_id: str) -> dict[str, object]:
         try:
-            with Project.open(_request_project_root(project_path), read_only=True) as project:
+            with Project.open(_request_project_root(project_path)) as project:
+                project.touch_chat_conversation(conversation_id)
                 conversation = project.chat_conversation(conversation_id)
                 return {
                     "conversation": conversation,
@@ -2085,6 +2120,9 @@ def create_app(
         try:
             with Project.open(_request_project_root(project_path)) as project:
                 conversation = project.chat_conversation(conversation_id)
+                project.touch_chat_conversation(
+                    conversation_id, title_from_prompt=question
+                )
                 if conversation["retrieval_mode"] == "hybrid" and payload.get(
                     "embedding_egress_acknowledged"
                 ) is not True:
@@ -2137,6 +2175,16 @@ def create_app(
                     not isinstance(reasoning_mode_override, str) or len(reasoning_mode_override) > 32
                 ):
                     raise HTTPException(status_code=422, detail="El modo de razonamiento no es válido")
+                if "reasoning" not in payload and "reasoning_mode" not in payload:
+                    saved_reasoning = project.chat_reasoning_preference(
+                        str(conversation["preset_name"])
+                    )
+                    if saved_reasoning:
+                        kind, _, value = saved_reasoning.partition(":")
+                        if kind == "effort":
+                            reasoning_override = value
+                        elif kind == "mode":
+                            reasoning_mode_override = value
                 agent_arguments: dict[str, Any] = {}
                 if reasoning_override is not None:
                     agent_arguments["reasoning_override"] = reasoning_override
