@@ -50,7 +50,7 @@ _ACTIVE_PROJECT_ROOT: ContextVar[Path | None] = ContextVar("discourselens_web_pr
 
 
 _CHAT_TOOL_EXCLUSIONS = frozenset({"import_document", "import_documents", "reprocess_document"})
-_CHAT_AGENT_MAX_TOOL_CALLS = 5
+_CHAT_AGENT_MAX_TOOL_CALLS = 20
 _CHAT_AGENT_RESULT_CHARS = 24_000
 _CHAT_ACTIVITY_LOCK = threading.Lock()
 _CHAT_ACTIVITY: dict[str, dict[str, object]] = {}
@@ -307,9 +307,9 @@ def _run_chat_agent(
         remaining_tool_calls = _CHAT_AGENT_MAX_TOOL_CALLS - len(tool_results)
         if remaining_tool_calls:
             tool_budget_guidance = (
-                f"There are {remaining_tool_calls} tool calls remaining in this turn. "
-                "Use the smallest number needed; one direct tool call is the default for a "
-                "single research question."
+                f"There are {remaining_tool_calls} tool calls available in this turn. "
+                "Complete every requested step that needs a tool; keep going when another "
+                "distinct operation is necessary to finish. Avoid redundant calls."
             )
         else:
             tool_budget_guidance = (
@@ -321,10 +321,12 @@ def _run_chat_agent(
             "researcher. Decide what to do from the whole conversation, the researcher's "
             "explicit requests, and the actual registered tools and methods below. There "
             "are no keyword rules or fixed analysis method: honor a concrete method/tool "
-            "request, otherwise choose the single best method first. Use additional methods "
-            "only if the researcher requests complementary work or a result shows a clear "
-            "need. Answer ordinary conversation and pasted-text questions directly without "
-            "tools when source evidence is not needed. "
+            "request, otherwise choose the methods that fully answer the discussion. Carry "
+            "the complete request through to completion: use all distinct operations that "
+            "are necessary, continue while a requested step remains, and only return a "
+            "final_answer when no necessary work remains. Avoid redundant calls. Answer "
+            "ordinary conversation and pasted-text questions directly without tools when "
+            "source evidence is not needed. "
             "Explain in your final answer which method or methods you selected and why; "
             "when methods are complementary, explain how they work together. Use tools for "
             "claims about the attached sources; do not invent tools, evidence, citations, "
@@ -471,8 +473,8 @@ def _run_chat_agent(
             if final_answer is None:
                 final_answer = (
                     "He reunido resultados parciales, pero no pude terminar la síntesis "
-                    "en esta respuesta. No hace falta dividir una petición sencilla; "
-                    "puedes volver a pedir la síntesis de los resultados disponibles."
+                    "en esta respuesta. Los resultados obtenidos se conservan en la "
+                    "conversación."
                 )
             break
         tool_name = plan["tool_name"]
@@ -1034,14 +1036,18 @@ _INDEX_HTML = r"""<!doctype html>
       .app-authenticated .chat-topline{align-items:flex-start;flex-wrap:wrap;gap:8px;padding:8px 0}
       .app-authenticated .chat-topline>div:first-child{display:block;flex:0 0 100%;min-width:0}
       .app-authenticated .chat-topline h2,.app-authenticated .chat-topline.conversation-open h2{max-width:none;white-space:normal;font-size:14px}
-      .app-authenticated .chat-top-actions{width:100%;flex-wrap:wrap;justify-content:flex-start;gap:6px}
-      .app-authenticated #projectControlsHost{flex:1 1 100%;min-width:0}
-      .app-authenticated .project-switcher{display:block;width:100%}
-      .app-authenticated .project-switch-row{grid-template-columns:minmax(0,1fr) auto auto;gap:5px}
+      .app-authenticated .chat-top-actions{width:100%;min-width:0;flex:1 1 100%;flex-wrap:nowrap;justify-content:space-between;gap:4px}
+      .app-authenticated #projectControlsHost{flex:1 1 auto;min-width:0}
+      .app-authenticated .project-switcher{display:flex;align-items:center;gap:3px;width:100%;min-width:0;padding:0}
+      .app-authenticated .project-switcher>label{display:none}
+      .app-authenticated .project-switch-row{flex:1 1 auto;grid-template-columns:minmax(0,1fr) 34px auto auto;gap:2px;width:100%;min-width:0}
       .app-authenticated .project-switch-row .input{max-width:none;width:100%;min-width:0}
+      .app-authenticated .project-switch-row .button{min-height:34px;padding:6px 7px;font-size:11px}
+      .app-authenticated .project-rename-button{width:34px;min-width:34px;height:34px;min-height:34px;padding:6px}
+      .app-authenticated .project-rename-button span{display:none}
       .app-authenticated #openLibrary{margin-left:auto}
-      .app-authenticated .research-tool-shortcuts{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:5px;margin:0 0 8px;padding:3px 0 8px;overflow:visible}
-      .app-authenticated .research-tool-shortcut{min-width:0;min-height:40px;padding:6px 4px;font-size:10px;line-height:1.2;text-align:center;white-space:normal}
+      .app-authenticated .research-tool-shortcuts{display:flex;flex-wrap:nowrap;gap:5px;margin:0 0 8px;padding:3px 0 8px;overflow-x:auto;overflow-y:hidden}
+      .app-authenticated .research-tool-shortcut{min-width:0;min-height:36px;padding:6px 9px;font-size:11px;line-height:1.2;text-align:center;white-space:nowrap}
       .research-tools-dialog{width:calc(100vw - 16px);height:calc(100dvh - 16px);max-height:calc(100dvh - 16px);padding:14px;border-radius:14px}
       .research-tools-dialog .settings-modal-head{top:0;margin:0 0 10px;padding:0 0 10px}
       .research-tools-dialog .settings-modal-head h2{font-size:22px}
@@ -1060,6 +1066,7 @@ _INDEX_HTML = r"""<!doctype html>
       .preset-actions{width:100%;flex-wrap:wrap}
       .preset-actions .button{flex:1 1 145px}
     }
+    @media(max-width:390px){.app-authenticated .chat-topline>div:first-child{display:none}}
 
   </style>
 </head>
