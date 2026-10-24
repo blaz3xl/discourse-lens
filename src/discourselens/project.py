@@ -2119,6 +2119,78 @@ class Project:
         self.db.commit()
         return project_id
 
+    def delete_research_project(self, project_id: str) -> dict[str, object]:
+        """Remove a research project while preserving its sources and conversations."""
+        self._require_writable()
+        if not isinstance(project_id, str) or not project_id.strip():
+            raise DocumentError("research project ID is invalid")
+
+        try:
+            self.db.execute("BEGIN IMMEDIATE")
+            project = self.db.execute(
+                "SELECT id,name FROM research_projects WHERE id=?", (project_id,)
+            ).fetchone()
+            if not project:
+                raise DocumentError("unknown research project")
+
+            fallback = self.db.execute(
+                "SELECT id,name FROM research_projects WHERE id<>? ORDER BY created_at,id LIMIT 1",
+                (project_id,),
+            ).fetchone()
+            if fallback is None:
+                fallback_id = uid()
+                fallback_name = "Proyecto principal"
+                timestamp = now()
+                self.db.execute(
+                    "INSERT INTO research_projects(id,name,created_at,updated_at) VALUES(?,?,?,?)",
+                    (fallback_id, fallback_name, timestamp, timestamp),
+                )
+            else:
+                fallback_id = str(fallback["id"])
+                fallback_name = str(fallback["name"])
+
+            moved_documents = int(
+                self.db.execute(
+                    "SELECT COUNT(*) FROM research_project_documents WHERE project_id=?",
+                    (project_id,),
+                ).fetchone()[0]
+            )
+            moved_conversations = int(
+                self.db.execute(
+                    "SELECT COUNT(*) FROM chat_conversations WHERE research_project_id=?",
+                    (project_id,),
+                ).fetchone()[0]
+            )
+            timestamp = now()
+            self.db.execute(
+                "INSERT OR IGNORE INTO research_project_documents(project_id,document_id,added_at) "
+                "SELECT ?,document_id,? FROM research_project_documents WHERE project_id=?",
+                (fallback_id, timestamp, project_id),
+            )
+            self.db.execute(
+                "UPDATE chat_conversations SET research_project_id=? WHERE research_project_id=?",
+                (fallback_id, project_id),
+            )
+            self.db.execute(
+                "UPDATE research_projects SET updated_at=? WHERE id=?",
+                (timestamp, fallback_id),
+            )
+            self.db.execute("DELETE FROM research_projects WHERE id=?", (project_id,))
+            self.db.commit()
+        except BaseException:
+            if self.db.in_transaction:
+                self.db.rollback()
+            raise
+
+        return {
+            "id": str(project["id"]),
+            "name": str(project["name"]),
+            "moved_to_id": fallback_id,
+            "moved_to_name": fallback_name,
+            "moved_documents": moved_documents,
+            "moved_conversations": moved_conversations,
+        }
+
     def add_document_to_research_project(self, project_id: str, document_id: str) -> None:
         self._require_writable()
         if not self.db.execute("SELECT 1 FROM research_projects WHERE id=?", (project_id,)).fetchone():
@@ -5572,6 +5644,20 @@ class Project:
         for row in rows:
             _validate_model_preset_metadata(row)
         return rows
+
+    def delete_model_preset(self, preset_id: str) -> str:
+        """Delete one saved provider/model configuration without touching chat history."""
+        self._require_writable()
+        if not isinstance(preset_id, str) or not preset_id.strip():
+            raise DocumentError("model preset ID is invalid")
+        row = self.db.execute(
+            "SELECT name FROM model_presets WHERE id=?", (preset_id,)
+        ).fetchone()
+        if not row:
+            raise DocumentError("unknown model preset")
+        self.db.execute("DELETE FROM model_presets WHERE id=?", (preset_id,))
+        self.db.commit()
+        return str(row["name"])
 
     def model_preset(self, name: str) -> sqlite3.Row:
         preset = self.db.execute(
