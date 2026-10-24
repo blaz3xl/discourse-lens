@@ -587,6 +587,10 @@ def test_direct_pdf_and_docx_imports_apply_positive_bounded_file_policy(tmp_path
     assert project.db.execute("SELECT COUNT(*) FROM document_revisions").fetchone()[0] == 0
 
 
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="portable project configuration writes require POSIX directory-relative I/O",
+)
 def test_direct_pdf_import_honors_project_import_size_limit(tmp_path):
     source = tmp_path / "bounded.pdf"
     pdf(source, ["The project policy must cover direct PDF imports."])
@@ -599,6 +603,10 @@ def test_direct_pdf_import_honors_project_import_size_limit(tmp_path):
     assert project.db.execute("SELECT COUNT(*) FROM document_revisions").fetchone()[0] == 0
 
 
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="portable project configuration writes require POSIX directory-relative I/O",
+)
 def test_pdf_reprocessing_honors_project_import_size_limit(tmp_path):
     source = tmp_path / "bounded-reprocess.pdf"
     pdf(source, ["Reprocessing must not bypass the project import limit."])

@@ -2566,16 +2566,13 @@ class Project:
     def _write_source_content(descriptor: int, content: str | bytes) -> None:
         """Write content to an exclusively created source file and close it."""
         try:
-            if isinstance(content, bytes):
-                stream = os.fdopen(descriptor, "wb")
-                descriptor = -1
-                with stream:
-                    stream.write(content)
-            else:
-                stream = os.fdopen(descriptor, "w", encoding="utf-8")
-                descriptor = -1
-                with stream:
-                    stream.write(content)
+            # Binary writes preserve the exact UTF-8 bytes that the database hashes;
+            # Windows text mode would otherwise translate LF into CRLF.
+            encoded = content if isinstance(content, bytes) else content.encode("utf-8")
+            stream = os.fdopen(descriptor, "wb")
+            descriptor = -1
+            with stream:
+                stream.write(encoded)
         finally:
             if descriptor >= 0:
                 os.close(descriptor)
