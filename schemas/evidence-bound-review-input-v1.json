@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Evidence-bound framework review input v1",
+  "type": "object",
+  "required": ["finding_id", "scope_snapshot_id", "framework_id", "model_preset"],
+  "properties": {
+    "finding_id": {"type": "string", "pattern": "\\S"},
+    "scope_snapshot_id": {"type": "string", "pattern": "\\S"},
+    "framework_id": {"type": "string", "pattern": "\\S"},
+    "model_preset": {"type": "string", "pattern": "\\S"}
+  },
+  "additionalProperties": false
+}

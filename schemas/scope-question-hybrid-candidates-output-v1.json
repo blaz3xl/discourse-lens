@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://discourselens.com/schemas/scope-question-hybrid-candidates-output-v1.json",
+  "title": "Hybrid scope question candidate retrieval result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "skill_run_id",
+    "finding_id",
+    "retrieval_run_id",
+    "coverage_id",
+    "candidate_count",
+    "retrieval_mode"
+  ],
+  "properties": {
+    "skill_run_id": { "type": "string" },
+    "finding_id": { "type": ["string", "null"] },
+    "retrieval_run_id": { "type": "string" },
+    "coverage_id": { "type": "string" },
+    "candidate_count": { "type": "integer", "minimum": 0 },
+    "retrieval_mode": { "const": "hybrid" }
+  }
+}

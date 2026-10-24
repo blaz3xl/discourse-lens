@@ -1,0 +1,18 @@
+{
+  "fixture": "Each engine must return B unfiltered, then only A after its scoped retrieval strategy",
+  "nearest_unfiltered_scope": "B",
+  "note": "This adversarial fixture checks scope mechanics only, not semantic quality.",
+  "passed": true,
+  "scope_filter_checks": {
+    "lancedb": {
+      "passed": true,
+      "returned_scopes": [
+        "A"
+      ],
+      "strategy": "LanceDB metadata predicate with prefilter=True",
+      "unfiltered_returned_scopes": [
+        "B"
+      ]
+    }
+  }
+}

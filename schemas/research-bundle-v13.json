@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://discourselens.com/schemas/research-bundle-v13.json",
+  "title": "DiscourseLens Research Bundle v13",
+  "description": "Version 12 portable provenance with source-span lineage for scoped qualitative annotations.",
+  "type": "object",
+  "required": [
+    "bundle_version",
+    "project_format_version",
+    "analysis_run",
+    "findings",
+    "finding_lineage",
+    "evidence",
+    "document_revisions",
+    "skill_runs",
+    "coverage_descriptors",
+    "model_executions",
+    "retrieval_runs",
+    "retrieval_hits",
+    "reranking_runs",
+    "reranking_hits",
+    "human_reviews",
+    "qualitative_coding",
+    "integrity"
+  ],
+  "properties": {
+    "bundle_version": {"const": 13},
+    "project_format_version": {"$ref": "research-bundle-v11.json#/properties/project_format_version"},
+    "analysis_run": {"$ref": "research-bundle-v11.json#/properties/analysis_run"},
+    "findings": {"$ref": "research-bundle-v11.json#/properties/findings"},
+    "finding_lineage": {"$ref": "research-bundle-v11.json#/properties/finding_lineage"},
+    "evidence": {"$ref": "research-bundle-v11.json#/properties/evidence"},
+    "document_revisions": {"$ref": "research-bundle-v11.json#/properties/document_revisions"},
+    "skill_runs": {"$ref": "research-bundle-v11.json#/properties/skill_runs"},
+    "coverage_descriptors": {"$ref": "research-bundle-v11.json#/properties/coverage_descriptors"},
+    "model_executions": {"$ref": "research-bundle-v11.json#/properties/model_executions"},
+    "retrieval_runs": {"$ref": "research-bundle-v11.json#/properties/retrieval_runs"},
+    "retrieval_hits": {"$ref": "research-bundle-v11.json#/properties/retrieval_hits"},
+    "reranking_runs": {"$ref": "research-bundle-v11.json#/properties/reranking_runs"},
+    "reranking_hits": {"$ref": "research-bundle-v11.json#/properties/reranking_hits"},
+    "human_reviews": {"$ref": "research-bundle-v12.json#/properties/human_reviews"},
+    "qualitative_coding": {
+      "type": "object",
+      "required": ["codebooks", "codes", "annotations", "memos", "source_spans"],
+      "properties": {
+        "codebooks": {"$ref": "research-bundle-v11.json#/properties/qualitative_coding/properties/codebooks"},
+        "codes": {"$ref": "research-bundle-v11.json#/properties/qualitative_coding/properties/codes"},
+        "annotations": {"$ref": "research-bundle-v11.json#/properties/qualitative_coding/properties/annotations"},
+        "memos": {"$ref": "research-bundle-v11.json#/properties/qualitative_coding/properties/memos"},
+        "source_spans": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "revision_id", "start_offset", "end_offset"],
+            "properties": {
+              "id": {"type": "string", "minLength": 1},
+              "revision_id": {"type": "string", "minLength": 1},
+              "start_offset": {"type": "integer", "minimum": 0},
+              "end_offset": {"type": "integer", "minimum": 1}
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "integrity": {"$ref": "research-bundle-v11.json#/properties/integrity"}
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://discourselens.com/schemas/evidence-reference-v1.json",
+  "title": "DiscourseLens Evidence Reference v1",
+  "description": "A report-safe evidence reference with a deterministic citation. This is not the full persisted EvidenceArtifact payload.",
+  "type": "object",
+  "required": ["evidence_id", "role", "kind", "text", "citation", "source_span_id"],
+  "properties": {
+    "evidence_id": {"type": "string", "minLength": 1},
+    "role": {"enum": ["SUPPORT", "COUNTEREVIDENCE", "EXCEPTION", "EXAMPLE", "CONTEXT", "ALTERNATIVE"]},
+    "kind": {"enum": ["TEXTUAL", "CORPUS_STATISTIC", "EXTERNAL_SOURCE", "USER_CONTEXT"]},
+    "text": {"type": "string"},
+    "citation": {"type": "string", "minLength": 1},
+    "text_truncated": {"type": "boolean"},
+    "source_span_id": {"type": ["string", "null"]}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"kind": {"const": "TEXTUAL"}}, "required": ["kind"]},
+      "then": {
+        "properties": {
+          "source_span_id": {"type": "string", "minLength": 1},
+          "citation": {"type": "string", "minLength": 1}
+        }
+      },
+      "else": {"properties": {"source_span_id": {"type": "null"}}}
+    }
+  ],
+  "additionalProperties": false
+}

@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://discourselens.com/schemas/research-bundle-v12.json",
+  "title": "DiscourseLens Research Bundle v12",
+  "description": "Version 11 portable provenance plus ordered append-only human review history. Original source files are optional and are not embedded.",
+  "type": "object",
+  "required": [
+    "bundle_version",
+    "project_format_version",
+    "analysis_run",
+    "findings",
+    "finding_lineage",
+    "evidence",
+    "document_revisions",
+    "skill_runs",
+    "coverage_descriptors",
+    "model_executions",
+    "retrieval_runs",
+    "retrieval_hits",
+    "reranking_runs",
+    "reranking_hits",
+    "human_reviews",
+    "qualitative_coding",
+    "integrity"
+  ],
+  "properties": {
+    "bundle_version": {"const": 12},
+    "project_format_version": {
+      "$ref": "research-bundle-v11.json#/properties/project_format_version"
+    },
+    "analysis_run": {"$ref": "research-bundle-v11.json#/properties/analysis_run"},
+    "findings": {"$ref": "research-bundle-v11.json#/properties/findings"},
+    "finding_lineage": {"$ref": "research-bundle-v11.json#/properties/finding_lineage"},
+    "evidence": {"$ref": "research-bundle-v11.json#/properties/evidence"},
+    "document_revisions": {"$ref": "research-bundle-v11.json#/properties/document_revisions"},
+    "skill_runs": {"$ref": "research-bundle-v11.json#/properties/skill_runs"},
+    "coverage_descriptors": {
+      "$ref": "research-bundle-v11.json#/properties/coverage_descriptors"
+    },
+    "model_executions": {"$ref": "research-bundle-v11.json#/properties/model_executions"},
+    "retrieval_runs": {"$ref": "research-bundle-v11.json#/properties/retrieval_runs"},
+    "retrieval_hits": {"$ref": "research-bundle-v11.json#/properties/retrieval_hits"},
+    "reranking_runs": {"$ref": "research-bundle-v11.json#/properties/reranking_runs"},
+    "reranking_hits": {"$ref": "research-bundle-v11.json#/properties/reranking_hits"},
+    "human_reviews": {
+      "type": "object",
+      "propertyNames": {"type": "string", "minLength": 1},
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": ["id", "status", "note", "created_at", "review_order"],
+          "properties": {
+            "id": {"type": "string", "minLength": 1},
+            "status": {"enum": ["ACCEPTED", "MODIFIED", "REJECTED"]},
+            "note": {"type": ["string", "null"]},
+            "created_at": {"type": "string", "minLength": 1},
+            "review_order": {"type": "integer", "minimum": 1}
+          },
+          "additionalProperties": false
+        }
+      }
+    },
+    "qualitative_coding": {"$ref": "research-bundle-v11.json#/properties/qualitative_coding"},
+    "integrity": {"$ref": "research-bundle-v11.json#/properties/integrity"}
+  },
+  "additionalProperties": false
+}

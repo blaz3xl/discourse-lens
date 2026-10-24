@@ -1,0 +1,228 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://discourselens.com/schemas/analysis-run-v1.json",
+  "title": "DiscourseLens Analysis Run Summary v1",
+  "description": "Secret-free snapshot and bounded provenance shape returned by the Python Core API.",
+  "type": "object",
+  "required": [
+    "analysis_run",
+    "revision_ids",
+    "skill_runs",
+    "model_executions",
+    "retrieval_runs",
+    "retrieval_hits",
+    "reranking_runs",
+    "reranking_hits"
+  ],
+  "properties": {
+    "analysis_run": {"$ref": "#/$defs/analysisRunRecord"},
+    "revision_ids": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1},
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "skill_runs": {"type": "array", "items": {"$ref": "#/$defs/skillRun"}},
+    "model_executions": {"type": "array", "items": {"$ref": "#/$defs/modelExecution"}},
+    "retrieval_runs": {"type": "array", "items": {"$ref": "#/$defs/retrievalRun"}},
+    "retrieval_hits": {"type": "array", "items": {"$ref": "#/$defs/retrievalHit"}},
+    "reranking_runs": {"type": "array", "items": {"$ref": "#/$defs/rerankingRun"}},
+    "reranking_hits": {"type": "array", "items": {"$ref": "#/$defs/rerankingHit"}}
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "analysisRunRecord": {
+      "type": "object",
+      "required": [
+        "id",
+        "scope_id",
+        "status",
+        "config_json",
+        "config_hash",
+        "started_at",
+        "completed_at",
+        "software_version",
+        "project_format_version",
+        "database_schema_version",
+        "config"
+      ],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "scope_id": {"type": "string", "minLength": 1},
+        "status": {"enum": ["PENDING", "RUNNING", "COMPLETED", "FAILED", "SKIPPED"]},
+        "config_json": {"type": "null"},
+        "config_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "started_at": {"type": "string", "minLength": 1},
+        "completed_at": {"type": ["string", "null"]},
+        "software_version": {"type": "string", "minLength": 1},
+        "project_format_version": {"type": "integer", "minimum": 1},
+        "database_schema_version": {"type": "integer", "minimum": 1},
+        "config": {"type": "object"}
+      },
+      "additionalProperties": false
+    },
+    "documentRevision": {
+      "type": "object",
+      "required": ["id", "document_id", "source_hash", "canonical_hash", "extractor", "mime_type", "ocr_language", "ocr_dpi"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "document_id": {"type": "string", "minLength": 1},
+        "source_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "canonical_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "extractor": {"type": "string", "minLength": 1},
+        "coordinate_scheme": {"type": "string", "minLength": 1},
+        "mime_type": {"type": ["string", "null"]},
+        "source_size": {"type": ["integer", "null"], "minimum": 0},
+        "created_at": {"type": "string", "minLength": 1},
+        "ocr_language": {"type": ["string", "null"]},
+        "ocr_dpi": {"type": ["integer", "null"], "minimum": 1}
+      },
+      "additionalProperties": false
+    },
+    "findingRecord": {
+      "type": "object",
+      "required": ["id", "analysis_run_id", "skill_run_id", "skill_id", "skill_version", "phenomenon", "observation", "interpretation", "alternative_interpretation", "claim_types_json", "coverage_id", "evidence_sufficiency", "interpretation_confidence", "limitations_json", "review_status", "created_at", "finalized_at"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "analysis_run_id": {"type": "string", "minLength": 1},
+        "skill_run_id": {"type": ["string", "null"]},
+        "skill_id": {"type": "string", "minLength": 1},
+        "skill_version": {"type": "string", "minLength": 1},
+        "phenomenon": {"type": "string"},
+        "observation": {"type": "string"},
+        "interpretation": {"type": ["string", "null"]},
+        "alternative_interpretation": {"type": ["string", "null"]},
+        "claim_types_json": {"type": "string"},
+        "coverage_id": {"type": ["string", "null"]},
+        "evidence_sufficiency": {"enum": ["SUFFICIENT", "LIMITED", "INSUFFICIENT"]},
+        "interpretation_confidence": {"enum": ["HIGH", "MEDIUM", "LOW"]},
+        "limitations_json": {"type": "string"},
+        "review_status": {"enum": ["GENERATED", "ACCEPTED", "MODIFIED", "REJECTED"]},
+        "created_at": {"type": "string", "minLength": 1},
+        "finalized_at": {"type": ["string", "null"]}
+      },
+      "additionalProperties": false
+    },
+    "skillRun": {
+      "type": "object",
+      "required": ["id", "analysis_run_id", "skill_id", "skill_version", "scope_id", "status", "executor", "config_hash", "coverage_id", "input_finding_id", "started_at", "completed_at", "error_type", "skip_reason"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "analysis_run_id": {"type": "string", "minLength": 1},
+        "skill_id": {"type": "string", "minLength": 1},
+        "skill_version": {"type": "string", "minLength": 1},
+        "scope_id": {"type": "string", "minLength": 1},
+        "status": {"enum": ["PENDING", "RUNNING", "COMPLETED", "FAILED", "SKIPPED"]},
+        "executor": {"type": "string", "minLength": 1},
+        "config_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "coverage_id": {"type": ["string", "null"]},
+        "input_finding_id": {"type": ["string", "null"]},
+        "started_at": {"type": ["string", "null"]},
+        "completed_at": {"type": ["string", "null"]},
+        "error_type": {"type": ["string", "null"]},
+        "skip_reason": {"type": ["string", "null"]}
+      },
+      "additionalProperties": false
+    },
+    "modelExecution": {
+      "type": "object",
+      "required": ["id", "analysis_run_id", "provider_id", "credential_alias", "model", "reasoning", "reasoning_mode", "reasoning_budget_tokens", "request_hash", "response_hash", "error_type", "input_tokens", "output_tokens", "reasoning_tokens", "latency_ms", "started_at", "completed_at", "parameters_json", "capabilities_json"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "analysis_run_id": {"type": "string", "minLength": 1},
+        "skill_run_id": {"type": ["string", "null"], "minLength": 1},
+        "provider_id": {"type": "string", "minLength": 1},
+        "credential_alias": {"type": "string", "minLength": 1},
+        "model": {"type": "string", "minLength": 1},
+        "reasoning": {"type": ["string", "null"]},
+        "reasoning_mode": {"type": ["string", "null"]},
+        "reasoning_budget_tokens": {"type": ["integer", "null"], "minimum": 0},
+        "request_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "response_hash": {"type": ["string", "null"], "pattern": "^[a-f0-9]{64}$"},
+        "error_type": {"type": ["string", "null"]},
+        "input_tokens": {"type": ["integer", "null"], "minimum": 0},
+        "output_tokens": {"type": ["integer", "null"], "minimum": 0},
+        "reasoning_tokens": {"type": ["integer", "null"], "minimum": 0},
+        "latency_ms": {"type": ["integer", "null"], "minimum": 0},
+        "started_at": {"type": "string", "minLength": 1},
+        "completed_at": {"type": ["string", "null"]},
+        "parameters_json": {"type": "string"},
+        "capabilities_json": {"type": "string"},
+        "model_price_json": {"type": ["string", "null"]},
+        "estimated_cost": {
+          "type": ["string", "null"],
+          "pattern": "^(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?$"
+        },
+        "estimated_cost_currency": {
+          "type": ["string", "null"],
+          "pattern": "^[A-Z]{3}$"
+        },
+        "endpoint": {"type": ["string", "null"]}
+      },
+      "additionalProperties": false
+    },
+    "retrievalRun": {
+      "type": "object",
+      "required": ["id", "analysis_run_id", "skill_run_id", "scope_id", "retrieval_plan_ref", "query_terms_json", "selection_policy", "candidate_count", "inspected_count", "returned_count", "candidate_limit_reached", "coverage_id", "created_at"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "analysis_run_id": {"type": "string", "minLength": 1},
+        "skill_run_id": {"type": "string", "minLength": 1},
+        "scope_id": {"type": "string", "minLength": 1},
+        "retrieval_plan_ref": {"type": "string", "minLength": 1},
+        "query_terms_json": {"type": "string"},
+        "selection_policy": {"type": "string", "minLength": 1},
+        "candidate_count": {"type": "integer", "minimum": 0},
+        "inspected_count": {"type": "integer", "minimum": 0},
+        "returned_count": {"type": "integer", "minimum": 0},
+        "candidate_limit_reached": {"enum": [0, 1]},
+        "coverage_id": {"type": "string", "minLength": 1},
+        "created_at": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
+    },
+    "retrievalHit": {
+      "type": "object",
+      "required": ["id", "retrieval_run_id", "source_span_id", "retrieval_method", "rank", "score"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "retrieval_run_id": {"type": "string", "minLength": 1},
+        "source_span_id": {"type": "string", "minLength": 1},
+        "retrieval_method": {"type": "string", "minLength": 1},
+        "rank": {"type": "integer", "minimum": 1},
+        "score": {"type": "number"}
+      },
+      "additionalProperties": false
+    },
+    "rerankingRun": {
+      "type": "object",
+      "required": ["id", "retrieval_run_id", "provider_id", "credential_alias", "model", "query", "top_n", "effective_top_n", "candidate_count", "returned_count", "created_at"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "retrieval_run_id": {"type": "string", "minLength": 1},
+        "provider_id": {"type": "string", "minLength": 1},
+        "credential_alias": {"type": ["string", "null"]},
+        "model": {"type": "string", "minLength": 1},
+        "query": {"type": "string", "minLength": 1},
+        "top_n": {"type": ["integer", "null"], "minimum": 1},
+        "effective_top_n": {"type": "integer", "minimum": 1},
+        "candidate_count": {"type": "integer", "minimum": 1},
+        "returned_count": {"type": "integer", "minimum": 1},
+        "created_at": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
+    },
+    "rerankingHit": {
+      "type": "object",
+      "required": ["id", "reranking_run_id", "retrieval_hit_id", "rank", "relevance_score"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "reranking_run_id": {"type": "string", "minLength": 1},
+        "retrieval_hit_id": {"type": "string", "minLength": 1},
+        "rank": {"type": "integer", "minimum": 1},
+        "relevance_score": {"type": "number"}
+      },
+      "additionalProperties": false
+    }
+  }
+}

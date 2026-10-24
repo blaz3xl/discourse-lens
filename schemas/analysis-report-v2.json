@@ -1,0 +1,142 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://discourselens.com/schemas/analysis-report-v2.json",
+  "title": "DiscourseLens Analysis Report JSON v2",
+  "type": "object",
+  "required": [
+    "analysis_run",
+    "document_revisions",
+    "findings",
+    "finding_lineage",
+    "skill_runs",
+    "model_executions",
+    "retrieval_runs",
+    "retrieval_hits",
+    "reranking_runs",
+    "reranking_hits",
+    "qualitative_coding",
+    "coverage_descriptors"
+  ],
+  "properties": {
+    "analysis_run": {"$ref": "analysis-run-v1.json#/$defs/analysisRunRecord"},
+    "document_revisions": {
+      "type": "array",
+      "items": {"$ref": "analysis-run-v1.json#/$defs/documentRevision"}
+    },
+    "findings": {
+      "type": "array",
+      "items": {"$ref": "finding-report-v2.json"}
+    },
+    "coverage_descriptors": {
+      "type": "array",
+      "items": {"$ref": "coverage-disclosure-v1.json"}
+    },
+    "finding_lineage": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["finding_id", "source_finding_id", "relation"],
+        "properties": {
+          "finding_id": {"type": "string", "minLength": 1},
+          "source_finding_id": {"type": "string", "minLength": 1},
+          "relation": {"const": "SYNTHESIZES"}
+        },
+        "additionalProperties": false
+      }
+    },
+    "skill_runs": {"type": "array", "items": {"$ref": "analysis-run-v1.json#/$defs/skillRun"}},
+    "model_executions": {"type": "array", "items": {"$ref": "analysis-run-v1.json#/$defs/modelExecution"}},
+    "retrieval_runs": {"type": "array", "items": {"$ref": "analysis-run-v1.json#/$defs/retrievalRun"}},
+    "retrieval_hits": {"type": "array", "items": {"$ref": "analysis-run-v1.json#/$defs/retrievalHit"}},
+    "reranking_runs": {"type": "array", "items": {"$ref": "analysis-run-v1.json#/$defs/rerankingRun"}},
+    "reranking_hits": {"type": "array", "items": {"$ref": "analysis-run-v1.json#/$defs/rerankingHit"}},
+    "pagination": {
+      "type": "object",
+      "required": [
+        "document_revisions",
+        "findings",
+        "finding_lineage",
+        "skill_runs",
+        "model_executions",
+        "retrieval_runs",
+        "retrieval_hits",
+        "reranking_runs",
+        "reranking_hits",
+        "annotations",
+        "memos"
+      ],
+      "properties": {
+        "document_revisions": {"$ref": "#/$defs/pageInfo"},
+        "findings": {"$ref": "#/$defs/pageInfo"},
+        "finding_lineage": {"$ref": "#/$defs/pageInfo"},
+        "skill_runs": {"$ref": "#/$defs/pageInfo"},
+        "model_executions": {"$ref": "#/$defs/pageInfo"},
+        "retrieval_runs": {"$ref": "#/$defs/pageInfo"},
+        "retrieval_hits": {"$ref": "#/$defs/pageInfo"},
+        "reranking_runs": {"$ref": "#/$defs/pageInfo"},
+        "reranking_hits": {"$ref": "#/$defs/pageInfo"},
+        "annotations": {"$ref": "#/$defs/pageInfo"},
+        "memos": {"$ref": "#/$defs/pageInfo"}
+      },
+      "additionalProperties": false
+    },
+    "qualitative_coding": {
+      "type": "object",
+      "required": ["annotations", "memos"],
+      "properties": {
+        "annotations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "span_id", "revision_id", "start_offset", "end_offset", "text", "citation"],
+            "properties": {
+              "id": {"type": "string", "minLength": 1},
+              "memo": {"type": ["string", "null"]},
+              "created_at": {"type": "string", "minLength": 1},
+              "label": {"type": "string"},
+              "definition": {"type": ["string", "null"]},
+              "codebook_name": {"type": "string"},
+              "span_id": {"type": "string", "minLength": 1},
+              "revision_id": {"type": "string", "minLength": 1},
+              "start_offset": {"type": "integer", "minimum": 0},
+              "end_offset": {"type": "integer", "minimum": 1},
+              "text": {"type": "string"},
+              "citation": {"type": "string", "minLength": 1}
+            },
+            "additionalProperties": false
+          }
+        },
+        "memos": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "scope_id", "title", "content", "created_at"],
+            "properties": {
+              "id": {"type": "string", "minLength": 1},
+              "scope_id": {"type": "string", "minLength": 1},
+              "title": {"type": "string", "minLength": 1},
+              "content": {"type": "string"},
+              "created_at": {"type": "string", "minLength": 1}
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "$defs": {
+    "pageInfo": {
+      "type": "object",
+      "required": ["offset", "limit", "total_count", "has_more"],
+      "properties": {
+        "offset": {"type": "integer", "minimum": 0},
+        "limit": {"type": "integer", "minimum": 1, "maximum": 100},
+        "total_count": {"type": "integer", "minimum": 0},
+        "has_more": {"type": "boolean"}
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

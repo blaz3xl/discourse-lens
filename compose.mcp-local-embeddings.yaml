@@ -1,0 +1,11 @@
+# Optional HTTP MCP overlay: attach MCP to the private Ollama network.
+services:
+  mcp-http:
+    networks:
+      - default
+      - local-embeddings
+
+networks:
+  local-embeddings:
+    external: true
+    name: discourselens-local-embeddings

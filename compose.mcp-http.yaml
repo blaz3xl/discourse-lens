@@ -1,0 +1,61 @@
+# Optional read-only Streamable HTTP endpoint for trusted MCP clients.
+# The bearer secret is an adapter token, not an OAuth connector implementation.
+services:
+  mcp-http:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        DISCOURSELENS_INSTALL_OCR: ${DISCOURSELENS_INSTALL_OCR:-1}
+    image: ${DISCOURSELENS_IMAGE:-discourselens:${COMPOSE_PROJECT_NAME}-mcp-http}
+    user: "${DISCOURSELENS_UID:-10001}:${DISCOURSELENS_GID:-10001}"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    init: true
+    restart: unless-stopped
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    environment:
+      DISCOURSELENS_MCP_HTTP_TOKEN: ${DISCOURSELENS_MCP_HTTP_TOKEN:-}
+      DISCOURSELENS_MCP_OAUTH_ISSUER_URL: ${DISCOURSELENS_MCP_OAUTH_ISSUER_URL:-}
+      DISCOURSELENS_MCP_OAUTH_RESOURCE_URL: ${DISCOURSELENS_MCP_OAUTH_RESOURCE_URL:-}
+      DISCOURSELENS_MCP_OAUTH_AUDIENCE: ${DISCOURSELENS_MCP_OAUTH_AUDIENCE:-}
+      DISCOURSELENS_MCP_OAUTH_JWKS_URL: ${DISCOURSELENS_MCP_OAUTH_JWKS_URL:-}
+      DISCOURSELENS_MCP_OAUTH_REQUIRED_SCOPES: ${DISCOURSELENS_MCP_OAUTH_REQUIRED_SCOPES:-discourselens:read}
+      DISCOURSELENS_TENANT_ID_KEY: ${DISCOURSELENS_TENANT_ID_KEY:-}
+      DISCOURSELENS_MCP_TENANT_SIGNING_KEY: ${DISCOURSELENS_MCP_TENANT_SIGNING_KEY:-}
+      DISCOURSELENS_CREDENTIALS_ENCRYPTION_KEY: ${DISCOURSELENS_CREDENTIALS_ENCRYPTION_KEY:-}
+    env_file:
+      - path: ${DISCOURSELENS_PROVIDER_ENV_FILE:-./provider.env}
+        required: false
+    command:
+      - discourselens-mcp
+      - --project
+      - /workspace/project
+      - --read-only
+      - --transport
+      - streamable-http
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8001"
+    ports:
+      - "127.0.0.1:${DISCOURSELENS_MCP_HTTP_PORT:-8001}:8001"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import socket; socket.create_connection(('127.0.0.1', 8001), timeout=3).close()"
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    volumes:
+      - type: bind
+        source: ${DISCOURSELENS_PROJECT_DIR:?Set DISCOURSELENS_PROJECT_DIR to an existing project}
+        target: /workspace/project
+        read_only: true

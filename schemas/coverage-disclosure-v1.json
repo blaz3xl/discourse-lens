@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://discourselens.com/schemas/coverage-disclosure-v1.json",
+  "title": "DiscourseLens Coverage Disclosure v1",
+  "description": "A report-safe disclosure of whether a referenced coverage descriptor was recorded.",
+  "oneOf": [
+    {
+      "type": "object",
+      "required": ["coverage_id", "status", "descriptor"],
+      "properties": {
+        "coverage_id": {"type": "null"},
+        "status": {"const": "NOT_RECORDED"},
+        "descriptor": {"type": "null"}
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": ["coverage_id", "status", "descriptor"],
+      "properties": {
+        "coverage_id": {"type": "string", "minLength": 1},
+        "status": {"const": "MISSING"},
+        "descriptor": {"type": "null"}
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": ["coverage_id", "status", "descriptor"],
+      "properties": {
+        "coverage_id": {"type": "string", "minLength": 1},
+        "status": {"const": "RECORDED"},
+        "descriptor": {"$ref": "synthesis-model-input-v1.json#/$defs/coverageDescriptor"}
+      },
+      "additionalProperties": false
+    }
+  ]
+}

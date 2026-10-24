@@ -1,0 +1,137 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://discourselens.com/schemas/research-bundle-v11.json",
+  "title": "DiscourseLens Research Bundle v11",
+  "description": "Secret-free portable analysis provenance manifest. Original source files are optional and are not embedded.",
+  "type": "object",
+  "required": ["bundle_version", "project_format_version", "analysis_run", "findings", "finding_lineage", "evidence", "document_revisions", "skill_runs", "coverage_descriptors", "model_executions", "retrieval_runs", "retrieval_hits", "reranking_runs", "reranking_hits", "qualitative_coding", "integrity"],
+  "properties": {
+    "bundle_version": {"const": 11},
+    "project_format_version": {"type": "integer", "minimum": 1},
+    "analysis_run": {"$ref": "analysis-run-v1.json#/$defs/analysisRunRecord"},
+    "findings": {
+      "type": "array",
+      "items": {"$ref": "analysis-run-v1.json#/$defs/findingRecord"}
+    },
+    "finding_lineage": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["finding_id", "source_finding_id", "relation"],
+        "properties": {
+          "finding_id": {"type": "string", "minLength": 1},
+          "source_finding_id": {"type": "string", "minLength": 1},
+          "relation": {"const": "SYNTHESIZES"}
+        },
+        "additionalProperties": false
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "items": {"$ref": "evidence-reference-v1.json"}
+      }
+    },
+    "document_revisions": {
+      "type": "array",
+      "items": {"$ref": "analysis-run-v1.json#/$defs/documentRevision"},
+      "minItems": 1
+    },
+    "skill_runs": {"type": "array", "items": {"$ref": "analysis-run-v1.json#/$defs/skillRun"}},
+    "coverage_descriptors": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "payload_json"],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "payload_json": {"type": "string", "minLength": 2}
+        },
+        "additionalProperties": false
+      }
+    },
+    "model_executions": {"type": "array", "items": {"$ref": "analysis-run-v1.json#/$defs/modelExecution"}},
+    "retrieval_runs": {"type": "array", "items": {"$ref": "analysis-run-v1.json#/$defs/retrievalRun"}},
+    "retrieval_hits": {"type": "array", "items": {"$ref": "analysis-run-v1.json#/$defs/retrievalHit"}},
+    "reranking_runs": {"type": "array", "items": {"$ref": "analysis-run-v1.json#/$defs/rerankingRun"}},
+    "reranking_hits": {"type": "array", "items": {"$ref": "analysis-run-v1.json#/$defs/rerankingHit"}},
+    "qualitative_coding": {
+      "type": "object",
+      "required": ["codebooks", "codes", "annotations", "memos"],
+      "properties": {
+        "codebooks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "name", "description", "created_at"],
+            "properties": {
+              "id": {"type": "string", "minLength": 1},
+              "name": {"type": "string", "minLength": 1},
+              "description": {"type": ["string", "null"]},
+              "created_at": {"type": "string", "minLength": 1}
+            },
+            "additionalProperties": false
+          }
+        },
+        "codes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "codebook_id", "parent_code_id", "label", "definition", "created_at"],
+            "properties": {
+              "id": {"type": "string", "minLength": 1},
+              "codebook_id": {"type": "string", "minLength": 1},
+              "parent_code_id": {"type": ["string", "null"]},
+              "label": {"type": "string", "minLength": 1},
+              "definition": {"type": ["string", "null"]},
+              "created_at": {"type": "string", "minLength": 1}
+            },
+            "additionalProperties": false
+          }
+        },
+        "annotations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "code_id", "span_id", "memo", "created_at"],
+            "properties": {
+              "id": {"type": "string", "minLength": 1},
+              "code_id": {"type": "string", "minLength": 1},
+              "span_id": {"type": "string", "minLength": 1},
+              "memo": {"type": ["string", "null"]},
+              "created_at": {"type": "string", "minLength": 1}
+            },
+            "additionalProperties": false
+          }
+        },
+        "memos": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "scope_id", "title", "content", "created_at"],
+            "properties": {
+              "id": {"type": "string", "minLength": 1},
+              "scope_id": {"type": "string", "minLength": 1},
+              "title": {"type": "string", "minLength": 1},
+              "content": {"type": "string"},
+              "created_at": {"type": "string", "minLength": 1}
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "integrity": {
+      "type": "object",
+      "required": ["algorithm", "digest"],
+      "properties": {
+        "algorithm": {"const": "sha256-canonical-json-v1"},
+        "digest": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

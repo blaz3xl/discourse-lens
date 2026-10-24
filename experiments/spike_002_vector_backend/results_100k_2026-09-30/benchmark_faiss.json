@@ -1,0 +1,20 @@
+{
+  "dataset": {
+    "chunks": 100000,
+    "dimensions": 768
+  },
+  "faiss": {
+    "build_seconds": 1.411281,
+    "bytes": 307200045,
+    "copied_bytes": 307200045,
+    "copy_seconds": 1.049192,
+    "hits": 10,
+    "query_seconds": 0.072722,
+    "reopen_hits": 10,
+    "reopen_query_seconds": 0.081124,
+    "reopen_seconds": 1.598617,
+    "round_trip_matches": true
+  },
+  "note": "Random vectors measure mechanics, not semantic retrieval quality.",
+  "persistence_round_trip_passed": true
+}

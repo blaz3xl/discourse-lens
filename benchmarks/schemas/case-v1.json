@@ -1,0 +1,247 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://discourselens.com/benchmarks/schemas/case-v1.json",
+  "title": "DiscourseLens Synthetic Benchmark Case v1",
+  "description": "A non-validation smoke fixture. Consumers check span bounds and that gold evidence IDs resolve within the declared revision scope.",
+  "type": "object",
+  "required": [
+    "case_id",
+    "language",
+    "text",
+    "task",
+    "gold"
+  ],
+  "properties": {
+    "case_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+    },
+    "language": {
+      "enum": ["en", "es", "ar"]
+    },
+    "text": {
+      "type": "string",
+      "minLength": 1
+    },
+    "task": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S"
+    },
+    "scope_revision_ids": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1, "pattern": "\\S"}
+    },
+    "evidence_catalog": {
+      "type": "array",
+      "description": "Known evidence identities and their source revisions; catalog entries may be outside the declared scope for diagnostics.",
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/evidenceReference"}
+    },
+    "gold": {
+      "type": "object",
+      "description": "Allowed and prohibited claim type lists must be disjoint.",
+      "required": [
+        "support_spans",
+        "counterevidence_spans",
+        "allowed_claim_types",
+        "prohibited_claim_types",
+        "minimum_coverage",
+        "requires_alternative_interpretation",
+        "required_limitations"
+      ],
+      "properties": {
+        "support_spans": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/span"}
+        },
+        "counterevidence_spans": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/span"}
+        },
+        "support_evidence_ids": {
+          "type": "array",
+          "description": "Evidence IDs expected to serve a support role; each ID resolves through evidence_catalog.",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1, "pattern": "\\S"}
+        },
+        "counterevidence_evidence_ids": {
+          "type": "array",
+          "description": "Evidence IDs expected to serve a counterevidence role; each ID resolves through evidence_catalog.",
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1, "pattern": "\\S"}
+        },
+        "allowed_claim_types": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/claimType"}
+        },
+        "prohibited_claim_types": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/claimType"}
+        },
+        "minimum_coverage": {
+          "enum": ["EXAMPLE_BASED", "TARGETED", "BROAD", "EXHAUSTIVE"]
+        },
+        "requires_alternative_interpretation": {
+          "type": "boolean"
+        },
+        "required_limitations": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
+          }
+        }
+      },
+      "allOf": [
+        {
+          "not": {
+            "properties": {
+              "allowed_claim_types": {"contains": {"const": "OBSERVATIONAL"}},
+              "prohibited_claim_types": {"contains": {"const": "OBSERVATIONAL"}}
+            }
+          }
+        },
+        {
+          "not": {
+            "properties": {
+              "allowed_claim_types": {"contains": {"const": "EXAMPLE_BASED"}},
+              "prohibited_claim_types": {"contains": {"const": "EXAMPLE_BASED"}}
+            }
+          }
+        },
+        {
+          "not": {
+            "properties": {
+              "allowed_claim_types": {"contains": {"const": "INTERPRETIVE"}},
+              "prohibited_claim_types": {"contains": {"const": "INTERPRETIVE"}}
+            }
+          }
+        },
+        {
+          "not": {
+            "properties": {
+              "allowed_claim_types": {"contains": {"const": "COMPARATIVE"}},
+              "prohibited_claim_types": {"contains": {"const": "COMPARATIVE"}}
+            }
+          }
+        },
+        {
+          "not": {
+            "properties": {
+              "allowed_claim_types": {"contains": {"const": "QUANTIFIED"}},
+              "prohibited_claim_types": {"contains": {"const": "QUANTIFIED"}}
+            }
+          }
+        },
+        {
+          "not": {
+            "properties": {
+              "allowed_claim_types": {"contains": {"const": "ABSENCE"}},
+              "prohibited_claim_types": {"contains": {"const": "ABSENCE"}}
+            }
+          }
+        },
+        {
+          "not": {
+            "properties": {
+              "allowed_claim_types": {"contains": {"const": "UNIVERSAL"}},
+              "prohibited_claim_types": {"contains": {"const": "UNIVERSAL"}}
+            }
+          }
+        },
+        {
+          "not": {
+            "properties": {
+              "allowed_claim_types": {"contains": {"const": "CONTEXTUAL"}},
+              "prohibited_claim_types": {"contains": {"const": "CONTEXTUAL"}}
+            }
+          }
+        }
+      ],
+      "additionalProperties": false
+    }
+  },
+  "dependentRequired": {
+    "scope_revision_ids": ["evidence_catalog"],
+    "evidence_catalog": ["scope_revision_ids"]
+  },
+  "allOf": [
+    {
+      "if": {"required": ["scope_revision_ids"]},
+      "then": {
+        "properties": {
+          "gold": {
+            "required": ["support_evidence_ids", "counterevidence_evidence_ids"]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": ["gold"],
+        "properties": {
+          "gold": {
+            "anyOf": [
+              {"required": ["support_evidence_ids"]},
+              {"required": ["counterevidence_evidence_ids"]}
+            ]
+          }
+        }
+      },
+      "then": {
+        "required": ["scope_revision_ids", "evidence_catalog"],
+        "properties": {
+          "gold": {
+            "required": ["support_evidence_ids", "counterevidence_evidence_ids"]
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "evidenceReference": {
+      "type": "object",
+      "required": ["evidence_id", "revision_id"],
+      "properties": {
+        "evidence_id": {"type": "string", "minLength": 1, "pattern": "\\S"},
+        "revision_id": {"type": "string", "minLength": 1, "pattern": "\\S"}
+      },
+      "additionalProperties": false
+    },
+    "span": {
+      "type": "object",
+      "description": "Half-open Unicode code-point offsets into the case text; start is inclusive and end is exclusive.",
+      "required": ["start", "end"],
+      "properties": {
+        "start": {"type": "integer", "minimum": 0},
+        "end": {"type": "integer", "minimum": 1}
+      },
+      "additionalProperties": false
+    },
+    "claimType": {
+      "enum": [
+        "OBSERVATIONAL",
+        "EXAMPLE_BASED",
+        "INTERPRETIVE",
+        "COMPARATIVE",
+        "QUANTIFIED",
+        "ABSENCE",
+        "UNIVERSAL",
+        "CONTEXTUAL"
+      ]
+    }
+  },
+  "additionalProperties": false
+}

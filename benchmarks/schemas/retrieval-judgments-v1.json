@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://discourselens.com/benchmarks/schemas/retrieval-judgments-v1.json",
+  "title": "Retrieval Unit Graded Judgments v1",
+  "description": "Versioned query IDs with ranked-unit relevance grades from 0 to 3.",
+  "type": "object",
+  "required": ["schema_version", "unit_kind", "queries"],
+  "properties": {
+    "schema_version": {"const": "retrieval-judgments-v1"},
+    "unit_kind": {"enum": ["DOCUMENT_REVISION", "SOURCE_SPAN", "CHUNK"]},
+    "chunker_provenance": {"$ref": "#/$defs/chunkerProvenance"},
+    "queries": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["query_id", "judgments"],
+        "properties": {
+          "query_id": {"type": "string", "minLength": 1, "pattern": "\\S"},
+          "judgments": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["unit_id", "grade"],
+              "properties": {
+                "unit_id": {"type": "string", "minLength": 1, "pattern": "\\S"},
+                "grade": {"type": "integer", "minimum": 0, "maximum": 3}
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {"unit_kind": {"const": "CHUNK"}},
+        "required": ["unit_kind"]
+      },
+      "then": {"required": ["chunker_provenance"]}
+    },
+    {
+      "if": {
+        "properties": {"unit_kind": {"enum": ["DOCUMENT_REVISION", "SOURCE_SPAN"]}},
+        "required": ["unit_kind"]
+      },
+      "then": {"not": {"required": ["chunker_provenance"]}}
+    }
+  ],
+  "$defs": {
+    "chunkerProvenance": {
+      "type": "object",
+      "required": ["name", "version", "configuration"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1, "pattern": "\\S"},
+        "version": {"type": "string", "minLength": 1, "pattern": "\\S"},
+        "configuration": {"type": "string", "minLength": 1, "pattern": "\\S"}
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,1018 @@
+# DiscourseLens
+
+DiscourseLens is a local-first, evidence-first engine for reproducible discourse
+research. Canonical documents, evidence spans, citations and historical scopes
+remain project-local; remote models are opt-in through explicit user presets.
+
+## Install
+
+```bash
+uv tool install "discourselens[corpus,vectors,mcp]"
+discourselens --version
+```
+
+The base package supports projects, UTF-8 text/Markdown/HTML/DOCX/PDF ingestion, canonical evidence,
+FTS search and reports. Install the optional `mcp` extra for the local MCP
+adapter. `corpus` enables Parquet/DuckDB derived token artifacts. `vectors`
+enables local sqlite-vec indexes. `nlp`
+installs local spaCy/Stanza backends; language models are intentionally selected
+and installed separately.
+The optional MCP launcher also supports `discourselens-mcp --version` without a
+project argument.
+
+For the local browser workspace, run `./scripts/start-local.sh`. It builds the
+Docker image, creates a private local project directory, and opens the app at
+`http://127.0.0.1:8000`. Create an account from the login page with a username
+and password. Add `--local-embeddings` to start Ollama for local embeddings.
+The launcher keeps the app on localhost; see the [web guide](docs/WEB_DEPLOYMENT.md).
+
+The browser workspace uses local email/password accounts with a private tenant
+project for each account. It supports import,
+literal search, frequencies, n-grams, colocations, KWIC, two-group lexical
+comparison, human-selected qualitative coding, a cited Van Dijk group
+comparison preparation, and semantic retrieval from explicitly built local
+indexes. It can store provider API keys encrypted in the project database when
+`DISCOURSELENS_CREDENTIALS_ENCRYPTION_KEY` is configured. Browser
+sign-in uses a local password account, and saved conversations can ask a
+configured provider model for evidence-bounded interpretation under one of the
+registered linguistic frameworks. Provider model identifiers can be entered
+by the operator or loaded from a bounded provider catalog using a saved
+credential; returned IDs do not certify model capabilities. The Core, CLI, and
+MCP expose the broader research workflows. MCP connector authorization is
+configured separately from the browser's local password account; see the
+[MCP guide](docs/MCP_SETUP.md).
+
+MCP clients run separately from the browser workspace. Local clients can start
+the MCP process over stdio without publishing a port. For ChatGPT, the guide
+shows how to use OpenAI Secure MCP Tunnel; a temporary Cloudflare tunnel is an
+optional route for clients that require a public HTTPS MCP URL. Neither option
+publishes the browser app.
+
+## Quick start
+
+```bash
+discourselens project init research
+discourselens document import research speech.pdf
+discourselens document import-many research corpus/*.pdf
+discourselens document show research REVISION_ID
+discourselens corpus frequency research REVISION_ID
+discourselens corpus ngrams research REVISION_ID --size 2 --format csv
+discourselens corpus collocation-analysis research REVISION_ID1,REVISION_ID2 migration
+discourselens corpus lexical-bundles research REVISION_ID1,REVISION_ID2 --size 3 --offset 0 --limit 100
+discourselens corpus lexical-bundle-evidence research REVISION_ID1,REVISION_ID2 "the public must" --size 3
+discourselens corpus lexical-bundle-evidence-scope research SCOPE_ID "the public must" --size 3
+discourselens corpus dispersion research REVISION_ID1,REVISION_ID2 migration
+discourselens corpus dispersion-evidence research REVISION_ID1,REVISION_ID2 migration
+discourselens search exact research REVISION_ID "public interest" --format json --limit 100 --offset 0
+discourselens analyze textual-descriptors research REVISION_ID
+discourselens analyze evidence-extraction research REVISION_ID --languages en,es
+discourselens skills list
+discourselens skills info builtin.evidence-extraction
+discourselens skills docs builtin.evidence-extraction
+```
+
+Local NLP is optional and requires the `nlp` extra. Install a distribution
+including both `corpus` and `nlp` before using the parser examples below. If you
+already installed the base tool above, replace it with the complete optional
+set shown in the Install section using:
+
+```bash
+uv tool install --force "discourselens[corpus,vectors,mcp,nlp]"
+```
+
+The `nlp` extra installs spaCy and Stanza libraries; it does not install
+language models or Stanza resource files. Install the selected model/resource
+separately and pass its local model ID or resource directory explicitly:
+
+```bash
+discourselens corpus build-nlp research REVISION_ID es --backend spacy --model es_core_news_sm
+discourselens corpus dependency-patterns research --revisions REVISION_ID --artifacts ARTIFACT_ID --relation nsubj
+discourselens corpus dependency-patterns-scope research SCOPE_ID --artifacts ARTIFACT_A,ARTIFACT_B --relation nsubj
+discourselens nlp capabilities ar --backend stanza --model ar-padt --model-dir /path/to/stanza_resources
+```
+
+`document import-many` imports each explicit input as an independent document
+and reports per-file outcomes; it does not concatenate a corpus into one
+revision. Successful files remain imported if another file fails.
+
+`skills list`, `providers list`, `profiles list PROJECT`, and
+`models list-presets`, `models list-capabilities`, and `models list-routing`
+use concise tables for interactive discovery; project-backed commands take the
+project path as their first argument. Pass `--format json`, `jsonl`, or `csv`
+when scripting them. These listings expose configuration metadata only; model
+discovery never resolves or prints secret values.
+
+See the [CLI reference](docs/CLI_REFERENCE.md) for command groups, reproducible
+workflow examples, output guidance, and provider-safety notes. The [Python SDK
+guide](docs/PYTHON_SDK.md) covers project lifecycle, scopes, deterministic
+analysis, local NLP artifacts, and explicit model-assisted workflows. For local
+or Docker-backed stdio integration, see the [MCP setup guide](docs/MCP_SETUP.md).
+The browser workspace runs the same Core APIs with isolated local account
+workspaces. For client-specific stdio, ChatGPT tunnel, or Cloudflare MCP setup,
+see the [MCP guide](docs/MCP_SETUP.md).
+
+## Python SDK
+
+The Python API uses the same Core services as the CLI and MCP. `Project` is a
+context manager, and file import dispatches through the shared Document Engine:
+
+```python
+from pathlib import Path
+
+from discourselens import Project
+
+with Project.init(Path("research-project")) as project:
+    imported = project.import_document(Path("speech.pdf"))
+    assert imported.revision_id is not None
+
+    scope_id = project.snapshot([imported.revision_id])
+    counts = project.corpus_frequency(scope_id)
+    print(counts.most_common(20))
+    concordance = project.corpus_kwic(scope_id, "migration", window=5)
+
+    candidates = project.extract_evidence([imported.revision_id], languages=("en",))
+    print(candidates["finding_ids"])
+
+    result = project.analyze_textual_descriptors([imported.revision_id])
+    finding_id = result["finding_ids"][0]
+    validation = project.validate_finding(finding_id)
+    assert validation.valid  # structural provenance/scope, not semantic entailment
+    assert validation.semantic_entailment_assessed is False
+    project.export_analysis_report(result["analysis_run_id"], "report.md")
+    project.export_research_bundle(result["analysis_run_id"], "research-bundle")
+```
+
+For a model-assisted, evidence-bound answer to a research question, select the
+revisions and a registered framework explicitly, then name a saved model
+preset. Retrieval is targeted: no matching examples means no answer, and does
+not establish absence from the corpus.
+
+```python
+with Project.open(Path("research-project")) as project:
+    answer = project.ask_question(
+        [imported.revision_id],
+        "How is responsibility represented?",
+        "fairclough-text",
+        preset_name="analysis",
+        limit=8,
+    )
+    if answer["status"] == "answered":
+        print(answer["answer_interpretation"])
+        for item in answer["evidence"]:
+            print(item["citation"], item["excerpt"])
+```
+
+The default candidate retrieval is local lexical search; only retrieved
+passages in the selected scope are sent to the configured answer model. Hybrid
+retrieval is an explicit opt-in and also sends the question to the selected
+embedding provider. Review both provider destinations before running it.
+See the [Python SDK guide](docs/PYTHON_SDK.md#evidence-bound-research-question)
+for its result and no-candidate semantics.
+
+## Runnable examples
+
+Run the fully offline corpus workflow with synthetic text, explicit scopes,
+deterministic evidence, and a verified portable bundle:
+
+```bash
+uv run python examples/offline_corpus_workflow.py ./offline-corpus-demo
+```
+
+The selected output directory must be new or empty. The script prints its corpus
+frequency, KWIC rows, evidence-bound findings, and bundle verification result.
+
+Run the targeted, model-free scope-question example the same way:
+
+```bash
+uv run python examples/offline_scope_question_workflow.py ./offline-question-demo
+```
+
+It prints the candidate count, targeted coverage mode, and evidence passages for
+two selected synthetic documents. Both workflows keep their project offline and
+accept only a new or empty output directory.
+
+Research bundles can be checked independently of their original project. Current
+bundle exports include a canonical JSON SHA-256 digest for accidental-corruption
+detection (not a digital signature):
+
+```bash
+discourselens export research-bundle research ANALYSIS_RUN ./bundle
+discourselens export verify-bundle ./bundle/manifest.json
+```
+
+Canonical document text for revisions with cited textual evidence is excluded
+by default, but cited evidence excerpts are still included and may be long—or
+even cover an entire revision if that was the saved evidence span. To include
+the full canonical text for those revisions in an archival bundle, opt in explicitly with
+`--include-canonical-text` in the CLI or `include_canonical_text=True` in the
+Python SDK/MCP tool. Embedded source text can contain sensitive research
+material; use the option only when the bundle's destination and recipients are
+appropriate, and review cited excerpts even when leaving the option off. The
+complete manifest, including any embedded text, remains
+bounded by the 64 MiB manifest limit. For opted-in v15 bundles the verifier
+checks source locations against the included canonical text; default exports
+continue to report `NOT_VERIFIED_CANONICAL_TEXT_NOT_INCLUDED` for textual
+evidence.
+
+Verification reports `source_location_verification` separately. For default
+bundles with textual evidence its value is
+`NOT_VERIFIED_CANONICAL_TEXT_NOT_INCLUDED`: span IDs, revision IDs, offsets,
+excerpt hashes and excerpt-length checks are preserved, but canonical document
+text and source PDFs are omitted. Therefore a same-length offset change cannot
+be checked against the source text from a default bundle alone. When v15
+canonical text is explicitly included, the verifier checks its revision hash
+and cited span text and reports `VERIFIED_CANONICAL_TEXT`. The SHA-256 manifest
+digest detects accidental changes only; anyone editing a manifest can recompute
+it. Without textual evidence, the field is `NOT_APPLICABLE`.
+
+The Python SDK exposes the same offline check as
+`discourselens.verify_research_bundle("./bundle/manifest.json")`. Legacy bundle
+version 10 remains structurally checkable but has no verifiable integrity digest.
+
+The wheel also publishes Draft 2020-12 contracts under
+`discourselens/_resources/schemas/`: `evidence-reference-v1.json` and
+`evidence-reference-v2.json`, `finding-report-v1.json` and
+`finding-report-v2.json`, `analysis-run-v1.json`, `analysis-report-v1.json` and
+`analysis-report-v2.json`,
+`research-bundle-v11.json`, `research-bundle-v12.json`,
+`research-bundle-v13.json`, `research-bundle-v14.json`,
+`research-bundle-v15.json`, `research-bundle-v16.json`, and
+`skill-manifest-v0.1.json`. Bundle v12 adds ordered human review history; v13
+adds source-span lineage for qualitative annotations; v14 adds canonical
+source-span records for textual finding evidence and its link rationale. Report
+schema v2 adds the persisted rationale for each
+finding/evidence relationship; v1 report schemas remain published unchanged for
+legacy consumers. Bundle v15 adds optional, revision-hash-bound canonical text;
+text is included only when explicitly requested. Bundle v16 includes immutable
+document-extraction manifests and structural hashes. These specify the
+machine-readable interchange shape; Core validation remains responsible for
+cross-record and methodological invariants.
+
+Derived token artifacts are also available through the same `Project` Core API:
+`project.build_surface_token_artifact(revision_id)` uses the `corpus` extra, and
+`project.build_parsed_token_artifact(revision_id, backend)` accepts an explicitly
+loaded local backend from `discourselens.nlp` (the `nlp` extra). Neither operation
+downloads a model or changes the immutable document revision.
+
+Scopes are explicit and immutable. Import results retain the document/revision
+IDs and extraction status; close and reopen projects with `Project.open(path)`.
+Deterministic analysis is available directly from `Project`; for model-assisted
+workflows, `project.analyze_controlled_cda(revision_ids, preset_name=...)` requires
+an explicitly saved model preset and uses the same controlled pipeline as CLI/MCP.
+
+Every document operation uses an immutable revision. Every search and analysis
+requires an explicit scope; it cannot silently retrieve text from other documents.
+
+Lexical bundles are deterministic surface-token n-grams. Results include raw
+occurrence and document-frequency counts, a calculation version, and explicit
+thresholds; they are descriptive, not discourse interpretations. Dependency
+patterns require one selected parsed-token artifact for every revision in the
+scope, so incomplete or out-of-scope parses cannot silently influence counts.
+They report syntactic head-lemma/relation/dependent-lemma candidates, not
+methodological claims about agency or social meaning.
+`corpus collocation-analysis` complements raw window counts with observed and
+expected co-occurrence, mutual information and t-score, tied to the explicit
+scope, token population, window, minimum frequency, and calculation version.
+Expected frequency uses the observed number of non-focus neighbor slots and the
+collocate's rate among non-focus tokens, so edge effects and the chosen window
+are represented. These are descriptive association rankings, not significance tests.
+Use `corpus collocation-evidence PROJECT REVISIONS QUERY COLLOCATE` to persist
+one selected pair's exhaustive frequencies and association measures as
+`CorpusStatisticEvidence` with a `CoverageDescriptor`; this revision-list form
+creates a scope from the supplied revisions; MCP exposes the same form as
+`corpus_collocation_evidence(revision_ids, query, collocate, window=5,
+min_frequency=2)`. For an already-frozen
+`ScopeSnapshot`, use `corpus collocation-evidence-scope PROJECT SCOPE_ID QUERY
+COLLOCATE [--window N] [--min-frequency N]` or the write-enabled MCP tool
+`corpus_collocation_evidence_for_scope(scope_id, query, collocate, window=5,
+min_frequency=2)`. The scope form reuses the saved membership without creating
+a new snapshot and persists exhaustive deterministic corpus-statistic evidence
+with coverage/provenance for the exact scope. Both measures—mutual information
+(MI) and t-score—are descriptive association measures, not significance tests
+or p-values. Each token must be one surface token of at most 256 characters;
+self-collocations are not supported. The MCP scope tool is unavailable in
+`--read-only` sessions.
+`corpus lexical-bundle-evidence PROJECT REVISION_IDS BUNDLE --size N` remains
+the revision-list form. For an existing immutable `ScopeSnapshot`, use
+`corpus lexical-bundle-evidence-scope PROJECT SCOPE_ID BUNDLE --size N` or MCP's
+write-enabled `corpus_lexical_bundle_evidence_for_scope(scope_id, bundle,
+size)`. The scope form does not create a fresh snapshot; it persists the exact
+bundle count as `CorpusStatisticEvidence` with exhaustive coverage over the
+contiguous n-gram positions in that saved scope. It uses the existing
+`surface-lexical-bundles-v1` tokenization; `BUNDLE` must contain exactly `N`
+surface tokens with `N` between 2 and 10. It is a descriptive count, not a CDA
+interpretation. The MCP operation is unavailable in `--read-only` sessions.
+`nlp capabilities LANGUAGE` can inspect the configured local spaCy model, or
+probe one already-installed backend explicitly with `--backend`, `--model`, and
+for Stanza `--model-dir`. The probe parses a small local fixture; it measures
+available output fields only, not general language quality or CDA validity.
+Saved controlled profiles may pin an exact local backend/model per language in
+`nlp_routes`. A Stanza route names an environment variable for the local
+resources directory rather than storing an absolute machine path. Preflight
+records the selected backend/model and observed capability statuses; an
+unavailable explicit route blocks execution and never falls back to another
+backend. For example:
+
+```json
+{
+  "languages": ["ar"],
+  "required_capabilities": ["dependency_parse"],
+  "nlp_routes": {
+    "ar": {
+      "backend": "stanza",
+      "model": "ar-padt",
+      "model_dir_env": "DL_STANZA_RESOURCES"
+    }
+  }
+}
+```
+
+Profiles may opt into the deterministic parser candidate preprocessors with
+`local_preprocessors`, choosing `social_actor_candidates` and/or
+`agency_candidates`. These require matching `pos` / `dependency_parse`
+capabilities and an explicit route for each scoped document language. Set that
+language as document metadata first; DiscourseLens does not guess or silently
+apply one language's parser to another:
+
+```bash
+discourselens document set-metadata research DOCUMENT_ID language '"en"'
+```
+
+The generated parsed-token artifact IDs and parser/model provenance are frozen
+into the AnalysisRun and consumed by candidate-only built-in skills. Those
+skills record parser observations, not Fairclough/van Leeuwen interpretations,
+and never infer author intent. `local_preprocessors` remains empty unless
+explicitly requested.
+
+Scanned PDFs are never OCRed implicitly. To request local OCR, install Tesseract
+with the needed `tessdata` language packs and run, for example,
+`discourselens document import research scan.pdf --ocr-language eng+spa --ocr-dpi 300`.
+DiscourseLens invokes PyMuPDF's local Tesseract integration only for that explicit
+request; the language and DPI are persisted with the immutable revision and its
+research-bundle provenance. OCR output is warning-bearing text, not a claim of
+transcription accuracy. No cloud OCR is used.
+
+Document metadata can create a reproducible selection without turning metadata
+into a live query scope:
+
+```bash
+discourselens document set-metadata research DOCUMENT_ID genre '"speech"'
+discourselens document select-metadata research --filters-json '{"genre":"speech"}'
+```
+
+The result is an immutable `scope_id`; later metadata changes or imports do not
+expand it.
+
+Read corpus counts, KWIC results, collocations, n-grams, and dispersion from
+that same saved scope:
+
+```bash
+discourselens corpus frequency-scope research SCOPE_ID \
+  --offset 0 --limit 100 --format json
+discourselens corpus kwic-scope research SCOPE_ID migration \
+  --window 5 --offset 0 --limit 100 --format json
+discourselens corpus collocations-scope research SCOPE_ID migration \
+  --window 5 --offset 0 --limit 100 --format json
+discourselens corpus ngrams-scope research SCOPE_ID --size 2 \
+  --offset 0 --limit 100 --format json
+discourselens corpus dispersion-scope research SCOPE_ID migration \
+  --offset 0 --limit 100 --format json
+discourselens corpus lexical-bundles-scope research SCOPE_ID --size 3 \
+  --min-frequency 2 --min-documents 1 --offset 0 --limit 100 --format json
+```
+
+These commands read the existing scope membership without creating a snapshot,
+expanding it with later imports, or writing project data. Page limits are
+1..1,000 (default 100); JSON carries frequency totals, KWIC `total_count`,
+collocation or distinct n-gram totals, and dispersion totals with page metadata
+such as `has_more`. `kwic-scope --window` sets context tokens per side, defaults
+to 5, and accepts 0..100. The collocations
+query is one surface token; `collocations-scope --window` defaults to 5 and
+accepts 1..100. The scope readers support `--offset`, `--limit`, and `--format`
+(`json`, `jsonl`, `csv`, or `table`).
+MCP exposes the same existing-scope read as
+`corpus_collocations_for_scope(scope_id, query, window=5, offset=0, limit=100)`.
+The existing `corpus collocations PROJECT REVISION_ID QUERY` CLI command and
+`corpus_collocations(revision_id, query, window=5, offset=0, limit=100)` MCP
+tool remain revision-only. `ngrams-scope --size N` selects n-gram length; the
+CLI `--format` options are `json`, `jsonl`, `csv`, and `table`. The existing
+`corpus ngrams PROJECT REVISION_ID --size N` form remains revision-only. The
+scope page preserves the Core fields `scope_id`, `size`, `offset`, `limit`,
+`rows`, `total_values`, and `has_more`. MCP exposes the same read-only,
+existing-scope operation as `corpus_ngrams_for_scope(scope_id, size, offset=0,
+limit=100)`, with a 64 KiB UTF-8 JSON response bound.
+
+`dispersion-scope` reports exact full-scope occurrence and document totals, with
+the `documents` listing limited to the requested page. MCP exposes this reader
+as `corpus_dispersion_for_scope(scope_id, term, offset=0, limit=100)`; it uses
+the same existing frozen membership and is available in read-only sessions.
+
+`lexical-bundles-scope` applies bundle-size and frequency filters to that same
+saved membership. Its bounded pages report the full `candidate_count` and keep
+each bundle string intact. MCP exposes it as
+`corpus_lexical_bundles_for_scope(scope_id, size=3, min_frequency=2,
+min_document_frequency=1, offset=0, limit=100)`. Both readers use the existing
+snapshot directly without creating or changing scope membership. The existing
+`corpus lexical-bundles PROJECT REVISION_IDS` command and
+`corpus_lexical_bundles(revision_ids, ...)` MCP tool take a revision selection
+instead and make their own scope for that selection.
+
+For a count that needs to become citable evidence rather than transient CLI
+output, use `discourselens corpus frequency-evidence PROJECT REVISION TERM`.
+That revision-only form creates a one-revision scope and persists the exact
+deterministic count with exhaustive scope provenance. To use a saved scope
+without creating another snapshot, run the scope-specific form:
+
+```bash
+discourselens corpus frequency-evidence-scope research SCOPE_ID migration
+```
+
+It reuses the existing `ScopeSnapshot` and persists the exhaustive count as
+`CorpusStatisticEvidence` with a `CoverageDescriptor`; it does not create or
+change the scope membership. `TERM` is one surface token. MCP exposes the same
+write-enabled operation as `corpus_frequency_evidence_for_scope(scope_id,
+term)`. It is unavailable in `--read-only` MCP sessions.
+
+The `corpus frequency` and `corpus frequency-scope` commands, along with
+`normalized-frequency`, `document-frequency`, and `parsed-frequency`, return
+bounded pages (100 values by default; use `--offset` and `--limit`, capped at
+1,000). `frequency-scope` reads an existing frozen `ScopeSnapshot`; it does not
+create or expand the scope or write project data. JSON includes scope/artifact
+provenance where applicable, exact type totals, and `has_more`; CSV/JSONL/table
+write only the requested rows.
+
+For parser-derived counts over an already-frozen scope, use the read-only
+`corpus parsed-frequency-scope PROJECT SCOPE_ID --artifacts ID1,ID2 --field
+{lemma,pos,dependency_relation} [--offset N] [--limit N]` command. It consumes
+the saved `ScopeSnapshot` directly without creating a new one. The supplied
+artifacts must exactly cover the scope—one compatible parsed-token artifact per
+revision. `lemma` counts stored lemma annotations, `pos` counts POS tags, and
+`dependency_relation` counts dependency labels; the result includes annotation
+coverage metadata because incomplete parser output can limit counts. Pages
+default to 100 values and allow up to 1,000 rows.
+
+```bash
+discourselens corpus parsed-frequency-scope research SCOPE_ID \
+  --artifacts PARSED_ARTIFACT_A,PARSED_ARTIFACT_B \
+  --field lemma --offset 0 --limit 100 --format json
+```
+
+This differs from `corpus parsed-frequency PROJECT --revisions REV_A,REV_B
+--artifacts ID_A,ID_B --field lemma`, which creates a scope from the supplied
+revision list. MCP provides the existing-scope read as
+`corpus_parsed_frequency_for_scope(scope_id, artifact_ids, field, offset=0,
+limit=100)`; it is read-only, reuses the saved membership, and caps the complete
+JSON response at 64 KiB. The revision-list MCP tool
+`corpus_parsed_frequency(revision_ids, artifact_ids, field, offset=0,
+limit=100)` creates a scope and is unavailable in read-only mode.
+
+Dependency-pattern candidates can also be read from an existing saved scope
+with `corpus dependency-patterns-scope PROJECT SCOPE_ID --artifacts ID1,ID2
+[--relation RELATION] [--head-lemma LEMMA] [--dependent-lemma LEMMA]
+[--offset N] [--limit N]`. This read-only command uses the immutable
+`ScopeSnapshot` as-is: it does not create a new snapshot or include later
+imports. Artifacts must provide exactly one compatible parsed-token artifact
+per scoped revision and share parser/model/schema identity. `coverage.patterns`
+reports whether the parser annotations are fully operational or limited.
+
+Rows contain a syntactic `(head_lemma, relation, dependent_lemma)` candidate,
+its occurrence `frequency`, and `document_frequency` across distinct scoped
+revisions. The relation filter matches exactly; lemma filters are
+case-insensitive. Each supplied filter is nonblank and at most 256 characters.
+These parser-derived patterns are candidates for research,
+not a discourse interpretation or evidence of agency, intention, or ideology.
+Filtered or limited results cannot establish corpus-wide absence. Pages default
+to 100 rows and allow up to 1,000. MCP exposes the same saved-scope operation as
+`corpus_dependency_patterns_for_scope(scope_id, artifact_ids, relation=None,
+head_lemma=None, dependent_lemma=None, offset=0, limit=100)`; it is available in
+read-only sessions and rejects a serialized page larger than 64 KiB. Lower the
+page limit if a response exceeds that cap.
+
+The revision-list forms remain separate: CLI `corpus dependency-patterns
+PROJECT --revisions REV_A,REV_B --artifacts ID_A,ID_B` and MCP
+`corpus_dependency_patterns(revision_ids, artifact_ids, ...)` create a scope
+from the supplied revisions.
+
+For artifact-derived surface-token rankings in MCP, the read-only tools
+`corpus_normalized_frequency_for_scope(scope_id, artifact_ids, offset=0,
+limit=100)` and `corpus_document_frequency_for_scope(scope_id, artifact_ids,
+offset=0, limit=100)` read an existing
+`ScopeSnapshot` directly. They require a complete, compatible set of
+surface-token artifacts, one per scoped revision, and return bounded pages
+with scope and artifact provenance, `total_values`, and `has_more`; each
+response is limited to 64 KiB of JSON. Normalized frequency counts token
+occurrences, while document frequency counts distinct scoped revisions
+containing each token. The existing revision-list tools
+`corpus_normalized_frequency(revision_ids, artifact_ids, offset=0, limit=100)`
+and `corpus_document_frequency(revision_ids, artifact_ids, offset=0, limit=100)`
+instead take an explicit revision selection and create a scope for that
+selection.
+KWIC output is paginated (100 rows by default; use `--offset` and `--limit` to
+continue, with a maximum of 1,000 rows per page). The `corpus kwic-scope`
+command reads an existing frozen scope in the same way and does not create or
+expand a snapshot. JSON returns `total_count` and `has_more`; the SDK exposes
+`corpus_kwic_page`, and MCP uses the same bounded response contract. KWIC rows
+include canonical half-open character offsets. To persist a selected hit
+returned by `kwic-scope`, pass its revision ID and offsets, the same query, and
+the existing scope ID to `corpus kwic-evidence-scope`:
+
+```bash
+discourselens corpus kwic-evidence-scope research SCOPE_ID REVISION_ID \
+  migration START_OFFSET END_OFFSET
+```
+
+The command rejects revisions outside the frozen scope and offsets that do not
+identify a matching hit. On success, it stores textual evidence with scope and
+coverage provenance and a deterministic citation. It does not create or expand
+the scope and requires a write-enabled project. MCP provides the write-enabled
+`corpus_kwic_evidence_for_scope(scope_id, revision_id, query, start_offset,
+end_offset)` tool for the same flow; it is unavailable with `--read-only`.
+The existing `corpus kwic-evidence PROJECT REVISION QUERY START END` command
+and MCP `corpus_kwic_evidence(revision_id, query, start_offset, end_offset)`
+tool remain the single-revision forms. Token, document-frequency,
+and parser-derived frequency MCP results also use bounded pages with `offset`,
+`limit`, `total_values`, and `has_more`, while retaining explicit scope and
+artifact provenance. Literal exact search is paginated consistently across the
+CLI, SDK and MCP and includes the exact count of matching paragraphs. The
+single-revision form, `search exact PROJECT REVISION_ID PHRASE` (MCP
+`search_exact`), remains confined to that revision. For a saved multi-revision
+selection, use `search exact-scope PROJECT SCOPE_ID PHRASE` or the MCP tool
+`search_exact_for_scope(scope_id, phrase, offset=0, limit=100)`; these read the
+existing frozen scope without creating or expanding it or writing project data.
+Both forms return a paged result with the full `total_count` and a `has_more`
+continuation flag. The CLI uses `--offset` and `--limit`; MCP uses `offset` and
+`limit`. Both accept page sizes of 1..1,000 rows, defaulting to 100.
+
+Parser-lemma KWIC takes an explicit revision list and one compatible parsed-token
+artifact ID per revision. To persist a row, copy its `revision_id`,
+`start_offset`, and `end_offset` from the `corpus lemma-kwic` JSON page into
+`corpus lemma-kwic-evidence`; that command verifies the canonical occurrence and
+returns its exact text, citation, and persisted evidence ID:
+
+```bash
+discourselens corpus lemma-kwic research migrant \
+  --revisions REV_A,REV_B \
+  --artifacts PARSED_ARTIFACT_A,PARSED_ARTIFACT_B --format json
+discourselens corpus lemma-kwic-evidence research migrant \
+  --revisions REV_A,REV_B \
+  --artifacts PARSED_ARTIFACT_A,PARSED_ARTIFACT_B \
+  --revision-id REV_A --start-offset 24 --end-offset 31
+```
+
+The revision-list `lemma-kwic-evidence` form creates a scope from `--revisions`.
+If a frozen scope already exists, use
+`corpus lemma-kwic-evidence-scope PROJECT SCOPE_ID LEMMA --artifacts ID1,ID2
+--revision-id REV --start-offset N --end-offset N` instead. This form consumes
+that immutable `ScopeSnapshot` directly and does not create a new snapshot. The
+artifact IDs must cover the selected scope with compatible parsed-token
+artifacts, and `--revision-id` must be a member of that scope. Copy the offsets
+from the exact lemma-KWIC result row; the command verifies the lemma occurrence
+against both the artifacts and canonical revision text before saving evidence.
+
+```bash
+discourselens corpus lemma-kwic-evidence-scope research SCOPE_ID migrant \
+  --artifacts PARSED_ARTIFACT_A,PARSED_ARTIFACT_B \
+  --revision-id REV_A --start-offset 24 --end-offset 31
+```
+
+Direct CLI surface-frequency and keyness comparisons are paginated too:
+
+```bash
+discourselens corpus compare-frequency PROJECT LEFT_REVISION RIGHT_REVISION \
+  --limit 100 --offset 0
+discourselens corpus keyness PROJECT LEFT_REVISION RIGHT_REVISION \
+  --limit 100 --offset 100
+discourselens corpus keyness-scopes PROJECT LEFT_SCOPE_ID RIGHT_SCOPE_ID \
+  --limit 100 --offset 0 --format json
+```
+
+`keyness-scopes` compares the two existing frozen `ScopeSnapshot`s directly; it
+is read-only and does not create or expand either scope. Its page size defaults
+to 100 and accepts 1..1,000 rows. Use `--offset` (zero-based, default 0),
+`--limit`, and `--format` (`json`, `jsonl`, `csv`, or `table`). The JSON response
+carries `left_scope_id`, `right_scope_id`, `total_rows`, and `has_more`; other
+formats contain only requested rows and report status with both scope IDs.
+The existing `corpus keyness PROJECT LEFT_REVISION RIGHT_REVISION` remains
+revision-only. MCP's `corpus_keyness(left_scope_id, right_scope_id, offset=0,
+limit=100)` already accepts two saved scope IDs. Python callers can use
+`Project.corpus_compare_frequency_page` or `Project.corpus_keyness_page`. The
+legacy `compare_frequency` and `keyness_log_likelihood` helpers still
+materialize full lists for callers that explicitly need all rows.
+CLI CSV output prefixes formula-like text cells and headers with an apostrophe
+to prevent spreadsheet execution; use JSON/JSONL when values must remain
+byte-for-byte unmodified.
+
+Persisted comparison Markdown is also paged to avoid loading every ranked row
+when rendering a short report:
+
+```bash
+discourselens report comparison research COMPARISON_ID --limit 25 --offset 25
+discourselens corpus compare-documents research REVISION_A REVISION_B \
+  --metric keyness --limit 100 --offset 100
+```
+
+Persisted corpus comparisons are now ranked and stored as normalized SQLite
+rows while the canonical result hash is computed incrementally. The comparison
+API returns a bounded page (`limit`/`offset`) and a total count; use
+`get_comparison` in MCP or the report command for subsequent pages. Earlier
+projects with JSON-backed comparison records remain readable. The direct
+`compare_frequency` and `keyness_log_likelihood` Python helpers still return a
+full list for callers explicitly choosing those convenience APIs.
+
+To turn one selected comparison row into a validated, deterministic
+`COMPARATIVE` Finding, use the same Core workflow from Python, CLI, or writable
+local MCP. The workflow creates a completed `AnalysisRun` over exactly the
+union of both frozen scopes, preserves both populations separately, and asks
+the researcher to state why those populations are comparable; it does not
+make a model call or independently certify that rationale:
+
+```bash
+discourselens corpus comparison-finding research COMPARISON_ID migration \
+  --comparability-basis "Both texts are policy speeches from the same period."
+```
+
+The MCP tool is `create_comparative_finding`. Read-only MCP mode omits it.
+The generated Finding reports descriptive counts/rates or the selected
+keyness statistic with a hash-verified row and deterministic citation.
+`corpus compare-named` supports `--format json|jsonl|csv|table`; JSON preserves
+the complete page envelope, while row-oriented formats repeat the comparison ID,
+frozen scope IDs, calculation version and pagination metadata on each row.
+For named corpora, freeze their current memberships into a comparison before
+creating the Finding:
+
+```bash
+discourselens corpus create research left-sample
+discourselens corpus add research LEFT_CORPUS_ID LEFT_REVISION_ID
+discourselens corpus create research right-sample
+discourselens corpus add research RIGHT_CORPUS_ID RIGHT_REVISION_ID
+discourselens corpus compare-named research LEFT_CORPUS_ID RIGHT_CORPUS_ID --metric keyness
+discourselens corpus comparison-finding research COMPARISON_ID migration \
+  --comparability-basis "Both samples cover the same genre and period."
+```
+
+Export an evidence-validated analysis as a portable local report:
+
+```bash
+discourselens report export research ANALYSIS_RUN report.pdf --format pdf
+discourselens report export research ANALYSIS_RUN report.docx --format docx
+discourselens report export research ANALYSIS_RUN report.html --format html
+```
+
+## Models and privacy
+
+CLI and MCP diagnostics are quiet by default. `--verbose` emits allowlisted JSONL
+lifecycle events to **stderr**; `--debug` adds non-content import preflight events.
+Neither mode logs document names/text, prompts, completions, credential aliases,
+secret references or secret values, so stdout remains usable for JSON/CSV and MCP
+stdio remains protocol-only:
+
+```bash
+discourselens --verbose document import research speech.pdf
+discourselens-mcp --project /absolute/path/research --verbose
+```
+
+When a model-assisted review or synthesis runs, it receives Core-issued evidence
+IDs with typed provenance. `EXTERNAL_SOURCE` evidence sends its supplied source
+label, title, retrieval date and excerpt, but not its stored URL; DiscourseLens
+does not independently verify that source. `USER_CONTEXT` sends its researcher
+label and content and is kept distinct from corpus text. These context records
+are included only when explicitly linked to the finding being reviewed or
+synthesized. A standalone context artifact can be supplied to a new finding
+review by ID; it is attached to the new review finding only if the model cites
+it, and the original finding remains unchanged.
+
+Create context from a UTF-8 file (or use `-` to read an excerpt from stdin), then
+pass its returned ID explicitly to a review. Context is limited to 20,000
+characters per artifact and ten supplemental artifacts per review. URLs are
+provenance metadata only: they are never fetched or sent to the model.
+
+```bash
+discourselens evidence add-external-source PROJECT "Council archive" 2026-09-28 excerpt.txt \
+  --title "Council record"
+discourselens evidence add-user-context PROJECT "field memo" notes.txt
+discourselens analyze evidence-review PROJECT FINDING REVIEW_PRESET \
+  --context-evidence-id EXTERNAL_EVIDENCE_ID \
+  --context-evidence-id USER_CONTEXT_EVIDENCE_ID
+```
+
+Inspect reviewed provider transports locally before configuring a credential:
+
+```bash
+discourselens providers list
+```
+
+Direct OpenAI, Anthropic and Gemini adapters are included. DeepSeek, Z.AI, xAI,
+Mistral, OpenRouter, Together, Groq, Fireworks, Ollama, LM Studio and vLLM use
+the explicit generic OpenAI-compatible transport. OpenAI defaults to its official
+endpoint, while compatible providers require an explicit endpoint. The catalog
+never assumes a model's reasoning or embedding capability; those remain
+endpoint/model-specific.
+
+Provider HTTP throttling is surfaced as `RateLimitError`; a numeric
+`Retry-After` value is available as `retry_after_seconds`. Recognized quota or
+billing exhaustion is surfaced as `QuotaError`. DiscourseLens does not retry
+automatically: callers decide whether and when to retry, avoiding hidden repeat
+requests or usage charges. Provider response bodies are not copied into these
+errors or the execution ledger.
+
+The [Cohere Embed v2 API](https://docs.cohere.com/reference/embed) is available as the embedding-only provider
+`cohere-embeddings`. DiscourseLens sends `search_document` for indexed passages
+and `search_query` for query text, batches at Cohere's documented request limit,
+and disables silent input truncation. It does not imply Cohere generation
+support.
+
+The [Voyage text embedding API](https://docs.voyageai.com/reference/embeddings-api-1) is available as `voyage-embeddings` (also
+embedding-only). It sends distinct `document` / `query` input types and rejects
+silent truncation; over-limit inputs return the provider's error for the user
+to address rather than silently changing the indexed text.
+
+The [Jina Embeddings API](https://jina.ai/embeddings/) is available separately
+from the Jina reranker as the embedding-only provider `jina-embeddings`. For
+documented v3–v5 model families, index and query requests use the distinct
+`retrieval.passage` / `retrieval.query` task adapters. Older model families use
+symmetric embeddings; the selected mode is frozen in index provenance. Inputs
+are sent in bounded batches without enabling provider-side truncation.
+
+The [Gemini Embeddings API](https://ai.google.dev/gemini-api/docs/embeddings)
+is available as the separate embedding-only provider `gemini-embeddings`.
+`gemini-embedding-001` uses `RETRIEVAL_DOCUMENT` / `RETRIEVAL_QUERY`; for
+`gemini-embedding-2`, DiscourseLens applies Google's documented
+`title: none | text: ...` and `task: search result | query: ...` text formats
+and batches inputs as independent requests. The chosen document-side format is
+recorded in vector provenance. Only these explicitly reviewed model IDs are
+accepted by this adapter; other Gemini embedding models fail closed until their
+retrieval behavior is reviewed.
+
+Vector artifacts record the embedding provider, model, dimension, paragraph
+segmentation version, and document input mode. Semantic search rejects legacy
+indexes without provenance or indexes built with a different provider/model;
+rebuild the index after changing either.
+
+Derived NLP artifacts record the parser implementation version and model version
+when the local backend exposes them. Unknown versions remain explicitly unset;
+they are never guessed from a model name. The derivation fingerprint includes
+the recorded parser/model versions, so selecting a new version produces a
+distinct artifact identity while preserving the immutable source revision.
+Surface-token Parquet artifacts are built incrementally in bounded row groups
+from the project-local canonical text file; the builder verifies the canonical
+revision hash and rejects source paths that escape project storage.
+Parsed-token artifacts follow the same bounded-write policy: the selected local
+NLP backend parses one persisted paragraph at a time, token annotations are flushed
+to Zstandard Parquet row groups, and canonical offsets and dependency heads are
+rebased to the revision-wide token/text coordinates. The canonical source hash and
+paragraph slices are verified before an artifact is registered.
+
+The [Jina Reranker API](https://jina.ai/en-US/reranker/) and [Cohere Rerank v2 API](https://docs.cohere.com/v2/reference/rerank)
+are exposed as reranking-only providers, separate from their embedding or
+generation transports. Both accept only the query and candidate texts the caller
+supplies, return candidate indices with relevance scores (not probabilities),
+and never retrieve or expand corpus scope themselves. Cohere requests are capped
+at 1,000 candidates and explicitly set `max_tokens_per_doc=4096`; Cohere may
+truncate longer candidates at that limit, so callers should pass bounded passages
+when that behavior is not appropriate.
+The Core's opt-in `rerank_framework_context` operation validates the original
+`ScopeSnapshot` and every candidate against canonical paragraph records before
+sending candidate text. It preserves lexical scores, records reranker scores
+separately, and keeps coverage `TARGETED`; it does not turn a bounded result
+into evidence of absence or corpus-wide prevalence.
+Evidence-bound model review can opt in with an explicit reranking gateway,
+provider ID, and model. Provider/model/query, candidate mapping, and separate
+reranker ranks/scores are persisted and included in reports and research bundles.
+From the CLI, opt in with a named credential alias (the key itself is never a
+CLI argument):
+
+```bash
+discourselens analyze evidence-review PROJECT FINDING REVIEW_PRESET \
+  --reranking-provider jina-reranker \
+  --reranking-credential university \
+  --reranking-model jina-reranker-v3.5 \
+  --context-evidence-id CONTEXT_EVIDENCE_ID
+```
+
+Store only a secret reference, never a key value. Environment-variable references
+remain supported through `--secret-env` (an alias for `--secret-reference`). A
+local OpenAI-compatible server that genuinely requires no key can use `--no-auth`,
+but only with an explicit loopback URL (`localhost`, `127.0.0.1`, or `::1`); remote
+and private-LAN endpoints must use a secret reference:
+
+```bash
+discourselens providers add-credential research openai-compatible local \
+  --no-auth --endpoint http://localhost:11434/v1
+discourselens models save-preset research local openai-compatible local my-model
+```
+
+Alternatively, with `discourselens[secrets]` installed, point to an entry already
+managed in the operating-system keyring. The reference format is
+`keyring:SERVICE:ACCOUNT`; DiscourseLens stores the reference, not the key:
+
+```bash
+discourselens providers add-credential research anthropic university \
+  --secret-reference keyring:discourselens:anthropic/university
+```
+
+Credential listing displays references and aliases only; it does not resolve
+them. The keyring entry must be provisioned separately using the user's OS
+keyring tooling.
+
+Remote execution is explicit. Use `models generate --prompt-file prompt.txt` so
+research text is not placed in shell history. Execution audit records store hashes,
+not prompts, completions, or secret values.
+
+Evidence-bound review and synthesis use a provider-native JSON Schema response
+format only when the exact provider/model capability profile explicitly enables
+`structured_output`. For example, declare the capability only after checking the
+selected model and endpoint:
+
+```bash
+discourselens models set-capabilities research anthropic claude-model \
+  --capabilities-json '{"structured_output":true}' --assurance TESTED
+```
+
+Without that declaration, the request remains prompt-guided and locally validated;
+there is no silent claim that the provider constrained its response. With either
+mode, DiscourseLens still validates the JSON payload, evidence IDs, scope and
+citations locally. Constrained output guarantees shape only, not methodological
+validity or evidential truth.
+
+Before a request, `models preview-request` shows the effective destination,
+including native defaults such as OpenAI's endpoint. Add `--include-prompt` only
+when you intentionally want the exact local payload printed; the preview never
+persists it.
+
+For paragraph embeddings, inspect a bounded window before building an index:
+
+```bash
+discourselens vectors preview-paragraphs research embed PRESET_REVISION_ID \
+  --offset 0 --limit 20
+```
+
+This preview is local: it does not resolve the credential value or contact the
+provider. By default it reports paragraph offsets, text hashes, provider-specific
+input preparation, endpoint and request shape without printing corpus text. Add
+`--include-text` only when you deliberately want the exact prepared text and
+request body displayed. The command previews only the selected window; advance
+`--offset` to inspect later paragraphs. Offline-mode restrictions are reported
+before any embedding execution. Python callers can use the same read-only method:
+`project.preview_paragraph_embedding_request("embed", revision_id, offset=0, limit=20)`.
+
+## MCP
+
+Run the local stdio server with an explicit project and optional import root:
+
+```bash
+discourselens-mcp --project /absolute/path/research --import-root /absolute/path/inbox
+```
+
+It uses no network port. The MCP process cannot open a project other than the
+configured one, nor import paths outside its configured import root.
+
+For inspection-only hosts, add `--read-only`:
+
+```bash
+discourselens-mcp --project /absolute/path/research --read-only
+```
+
+This opens SQLite with read-only/query-only enforcement, skips migrations (the
+project must already be at the current schema), exposes only an explicit set of
+read tools, and hides all prompts that could suggest a mutating workflow. Tools
+that create snapshots or persist retrieval/analysis records are intentionally
+unavailable in this mode.
+
+The server exposes only Core-backed project operations: scoped lexical, vector
+and hybrid search; bounded `get_page`, `get_paragraph`, and `get_context`
+inspection; deterministic corpus operations including KWIC, n-grams,
+collocations, lexical bundles and parsed dependency patterns; explicit
+named-corpus/subcorpus membership and snapshots; and
+controlled evidence-bound reviews. Registered skill
+methodology is also available as a bounded
+`discourselens://skills/{skill_id}/methodology` resource. The low-level
+`search_hybrid` tool accepts an explicit numeric query vector and local index
+IDs; it neither embeds the query nor receives credentials. Both low-level
+`search_vector` and `search_hybrid` return the effective `scope_id` and a
+`retrieval_run_id` with their hits. Revision shorthand creates a durable scope so
+the retrieval run keeps a resolvable lineage. The separate
+`search_hybrid_with_preset` tool accepts a bounded text query and a named model
+preset, and may send that query to the preset's embedding endpoint; it is
+excluded from read-only mode, enforces offline policy, and reports the egress
+possibility in its schema. Exact search, KWIC, token-frequency,
+document-frequency, parsed-frequency, n-gram, collocation, and persisted
+comparison MCP tools return bounded pages with total counts and continuation
+offsets. New persisted comparison rows are read from normalized SQLite pages
+only after a streamed integrity-hash check; legacy JSON-backed runs remain
+supported. Analysis report pages
+apply the same offset/limit independently to each provenance collection and cap
+per-finding evidence and long text fields; archival reports remain available
+through the local CLI/SDK. `get_analysis_run` pages revision IDs and run/model/
+retrieval provenance, while preserving the same secret-free configuration snapshot.
+
+Guided MCP prompts are available for `critical-evidence-review`, `full-cda`,
+`social-actor-analysis`, `dha-analysis`, `corpus-comparison`, and
+`critical-review-finding`. Analysis prompts invoke the existing controlled Core
+pipeline rather than asking the host to improvise skill ordering; comparison
+uses the deterministic comparison tool. `critical-evidence-review` gives
+general guidance to distinguish observations from interpretations and inspect
+evidence and counterevidence; `critical-review-finding` validates one finding
+with Core and reads its bounded finding resource. Prompts are guidance, not a
+replacement for the typed tools or their scope and evidence checks.
+
+## Current scope
+
+The current release includes deterministic textual descriptors, an optional
+controlled evidence-bound CDA review profile, corpus operations, evidence
+validation, reproducible reports and local vector-index primitives. The review
+profile records framework/version and cannot mint citations; it is not a claim
+that the system has methodologically validated every CDS framework. Its seed
+pass scans a limited, versioned English/Spanish sentence-cue inventory and
+attaches a capped set of exact candidate passages. These cues are selection
+heuristics, not discourse classifications; an empty result is not evidence of
+absence. Framework reviews also run a separate, deterministic, capped lexical
+retrieval against the original immutable scope, so the seed inventory does not
+restrict later evidence selection. This retrieval is targeted, not exhaustive;
+it cannot support corpus-wide absence, universal, or prevalence claims. When no
+seed candidates are selected, framework stages are explicitly skipped rather
+than reported as analyzed. After successful reviews, a synthesis stage consumes
+only validated findings and their existing evidence IDs; it cannot add new
+citations or unsupported corpus-wide claims. OCR is opt-in and requires a local
+Tesseract installation; without the explicit OCR option, scanned PDFs are surfaced
+as requiring OCR instead of silently yielding an empty text.
+Counterevidence literal matches are persisted as scoped retrieval candidates,
+not pre-labeled as refutations; only a later review can attach the
+`COUNTEREVIDENCE` role to a Finding. The exhaustive scan writes candidates in
+batches of at most 512 and returns 100 at a time by default; use the CLI/MCP
+`offset` and `limit` fields plus the returned `retrieval_run_id` to continue the
+same persisted result set without rescanning; Python uses
+`project.counterevidence_review(finding_id, phrase, retrieval_run_id=...)`. The exact
+candidate count describes literal occurrences found under that scan, not the
+number of passages that substantively refute the Finding. To prevent an overly
+broad literal query from creating unbounded local records, a run rejects more
+than 10,000 matches before persisting a partial result; refine the query and retry.
+
+## Docker (optional)
+
+Docker is first-class but never required. The image exposes **no ports**; MCP
+uses stdin/stdout only. Mount an explicit project directory and use the temporary
+writable filesystem configured by Compose:
+
+CI and the Docker image install the exact dependency set in `uv.lock`; refresh
+that lock deliberately when updating dependencies. Native package installs remain
+compatible with the declared version ranges.
+
+```bash
+DISCOURSELENS_PROJECT_DIR="$PWD/research" docker compose run --rm mcp
+```
+
+Compose tags the built image as `discourselens:<project-name>`, using the
+Compose project name (normally the checkout directory name) by default. When
+multiple checkouts share a Docker engine, give each a distinct name with
+`COMPOSE_PROJECT_NAME` (or `docker compose --project-name dl-checkout-a`); for
+example, prefix the command above with `COMPOSE_PROJECT_NAME=dl-checkout-a`.
+
+For a container-level read-only MCP session (read-only project bind mount and no
+container network), use the opt-in profile:
+
+```bash
+DISCOURSELENS_PROJECT_DIR="$PWD/research" docker compose --profile read-only run --rm mcp-readonly
+```
+
+The default image omits the OCR binary. To build an English/Spanish local-OCR
+image, run `docker build --build-arg DISCOURSELENS_INSTALL_OCR=1 -t discourselens:ocr .`,
+then set `DISCOURSELENS_IMAGE=discourselens:ocr` when using Compose. OCR still
+requires explicit `--ocr-language`; the container never sends documents to a
+remote OCR service. Other languages require their corresponding Tesseract language
+package in a custom image.
+
+For multiple checkouts sharing one Docker engine, use a distinct tag for each
+custom OCR or NLP image too.
+
+Local NLP backends are also opt-in to keep the default image lean. Build an image
+with the spaCy and Stanza libraries using
+`docker build --build-arg DISCOURSELENS_INSTALL_NLP=1 -t discourselens:nlp .`,
+or set `DISCOURSELENS_INSTALL_NLP=1` when building with Compose. This installs
+backend libraries only; language model weights/resources are not downloaded or
+embedded in the image and must be installed or mounted explicitly for the selected
+language/backend. The full `nlp` extra includes Stanza/PyTorch and its current
+Linux package resolution also installs CUDA runtime wheels; expect a much slower
+build and substantially larger image. This optional profile does not configure or
+promise GPU execution. The default image remains free of spaCy, Stanza, and PyTorch.
+
+If your host UID/GID differs from `1000:1000`, set `DISCOURSELENS_UID` and
+`DISCOURSELENS_GID` to the owning non-root user before running Compose.
+
+For a direct CLI invocation, choose a unique image tag for each checkout if
+multiple copies use the same Docker engine:
+
+```bash
+docker build -t discourselens:local-checkout-a .
+docker run --rm --user "$(id -u):$(id -g)" \
+  -v "$PWD/research:/workspace/project" discourselens:local-checkout-a \
+  discourselens document show /workspace/project REVISION_ID
+```
+
+## License
+
+DiscourseLens is distributed under the GNU Affero General Public License v3.0
+only. This permits commercial use when the license terms are followed, so the
+public license does not require every commercial user to pay DiscourseLens.
+The project may offer a separate written commercial license for proprietary use;
+see [LICENSING.md](docs/LICENSING.md) for the separate DiscourseLens and
+PyMuPDF terms and the limits of that option.

@@ -1,0 +1,21 @@
+# OAuth-only writable MCP profile. Use only with an identity provider that
+# issues the discourselens:write scope to the intended researcher.
+services:
+  mcp-http:
+    volumes: !override
+      - type: bind
+        source: ${DISCOURSELENS_PROJECT_DIR:?Set DISCOURSELENS_PROJECT_DIR to an existing project}
+        target: /workspace/project
+        read_only: false
+    command:
+      - discourselens-mcp
+      - --project
+      - /workspace/project
+      - --transport
+      - streamable-http
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8001"
+    environment:
+      DISCOURSELENS_MCP_OAUTH_REQUIRED_SCOPES: discourselens:write

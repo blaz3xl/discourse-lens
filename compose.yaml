@@ -1,0 +1,52 @@
+# Optional local container entrypoint. It deliberately has no `ports:` stanza.
+# Set DISCOURSELENS_PROJECT_DIR to an explicit project path before invoking it.
+services:
+  mcp:
+    build:
+      context: .
+      args:
+        DISCOURSELENS_INSTALL_OCR: ${DISCOURSELENS_INSTALL_OCR:-0}
+        DISCOURSELENS_INSTALL_NLP: ${DISCOURSELENS_INSTALL_NLP:-0}
+    image: ${DISCOURSELENS_IMAGE:-discourselens:${COMPOSE_PROJECT_NAME}}
+    # Default matches conventional first-user Linux mounts while remaining non-root.
+    user: "${DISCOURSELENS_UID:-1000}:${DISCOURSELENS_GID:-1000}"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    init: true
+    tmpfs:
+      - /tmp
+    stdin_open: true
+    tty: false
+    volumes:
+      - ${DISCOURSELENS_PROJECT_DIR:?Set an explicit project path}:/workspace/project
+    command: ["discourselens-mcp", "--project", "/workspace/project"]
+
+  mcp-readonly:
+    profiles: ["read-only"]
+    build:
+      context: .
+      args:
+        DISCOURSELENS_INSTALL_OCR: ${DISCOURSELENS_INSTALL_OCR:-0}
+        DISCOURSELENS_INSTALL_NLP: ${DISCOURSELENS_INSTALL_NLP:-0}
+    image: ${DISCOURSELENS_IMAGE:-discourselens:${COMPOSE_PROJECT_NAME}}
+    user: "${DISCOURSELENS_UID:-1000}:${DISCOURSELENS_GID:-1000}"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    init: true
+    tmpfs:
+      - /tmp
+    stdin_open: true
+    tty: false
+    network_mode: none
+    volumes:
+      - type: bind
+        source: ${DISCOURSELENS_PROJECT_DIR:?Set an explicit project path}
+        target: /workspace/project
+        read_only: true
+    command: ["discourselens-mcp", "--project", "/workspace/project", "--read-only"]

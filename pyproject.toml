@@ -1,0 +1,57 @@
+[build-system]
+requires = ["hatchling>=1.26"]
+build-backend = "hatchling.build"
+
+[project]
+name = "discourselens"
+version = "0.1.0"
+description = "Evidence-first discourse research core"
+readme = "README.md"
+license = "AGPL-3.0-only"
+license-files = ["LICENSE"]
+requires-python = ">=3.12"
+dependencies = [
+    "click>=8.0",
+    "cryptography>=44",
+    "defusedxml>=0.7.1",
+    "pydantic>=2.10",
+    "PyMuPDF>=1.24",
+    "PyYAML>=6.0",
+    "typer>=0.15",
+]
+
+[project.scripts]
+discourselens = "discourselens.cli:app"
+discourselens-mcp = "discourselens.mcp_server:main"
+discourselens-web = "discourselens.web:main"
+discourselens-web-user = "discourselens.web_accounts:main"
+
+[project.optional-dependencies]
+corpus = ["duckdb>=1.1", "pyarrow>=18"]
+web = ["fastapi>=0.115", "itsdangerous>=2.2", "uvicorn[standard]>=0.34", "PyJWT[crypto]>=2.9", "mcp>=2"]
+nlp = ["spacy>=3.8", "stanza>=1.11"]
+mcp = ["mcp>=2", "PyJWT[crypto]>=2.9"]
+secrets = ["keyring>=25"]
+vectors = ["sqlite-vec>=0.1"]
+dev = ["pytest>=8.3", "pyright>=1.1", "ruff>=0.9", "mcp>=2", "PyJWT[crypto]>=2.9", "jsonschema>=4.23"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"docs/methodology" = "discourselens/_resources/methodology"
+"schemas" = "discourselens/_resources/schemas"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src", "."]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint.per-file-ignores]
+"src/discourselens/cli.py" = ["B008"]
+
+[tool.pyright]
+include = ["src/discourselens", "tests"]
+typeCheckingMode = "standard"
+venvPath = "."
+venv = ".venv"

@@ -1,0 +1,216 @@
+{
+  "build": {
+    "all_artifact_hashes_sha256": [
+      "b0eeee664b6af70ebd36c30c21840b176063b4e14586602fbb0c6165e2e42801",
+      "1aa3c5b29e79d6f6ac58e1a7f124581a3f99e54da4c08fc45460c196d9a2ef29",
+      "5552c688f8086b93265f96a0e50c357163bcdbef68b1db6e1e7591fcedc0d03b",
+      "b6a36f954d38eda7a4850a348def776a6f41b07ebe2b65930a50267346f0d2ef",
+      "d6ae351a8dedf71566e016811fe7c8971ff77be868d69ec994c0f50d01187e63",
+      "3c8185c98a37fefae0a755149fb421b681ff658a3414389c06cfd2c879cb0b38",
+      "3ec06cc7a27a90c15ebda59703e6483bb40168b355edfde04dc17149859ed039",
+      "efc097fdc804ec43914eb4469cc6c2ac91eea610176e26c367eaecba97c93587",
+      "d401c5c95fcc1ee12ead5b57b75928f257b25dc4ba6cc4c81fbba1783d0498a8",
+      "6397f398702191f02a9111b593b09026d46fc0e9f2572f7e05bfdad4534a32e5"
+    ],
+    "artifact_count": 10,
+    "artifact_sizes_bytes": [
+      3289088,
+      3289088,
+      3289088,
+      3289088,
+      3289088,
+      3289088,
+      3289088,
+      3289088,
+      3289088,
+      3289088
+    ],
+    "hash_all_artifacts_seconds": 0.213265,
+    "hash_count": 10,
+    "hash_count_matches_artifacts": true,
+    "persisted_bytes": 32890880,
+    "seconds": 26.62311
+  },
+  "candidate": "sqlite-vec",
+  "dataset": {
+    "chunks_per_revision": 1000,
+    "dimensions": 768,
+    "distance_metric": "cosine",
+    "excluded_revision_adversary": "r0001-0000 is an exact copy of the query vector",
+    "query_vector_source": "independent deterministic seeded vector",
+    "revisions": 10,
+    "seed": 20261001,
+    "source_vector_matrix_bytes": 30723072,
+    "total_vectors": 10000
+  },
+  "environment": {
+    "candidate_package": "sqlite-vec",
+    "candidate_version": "0.1.9",
+    "faiss_openmp_threads": null,
+    "numpy": "2.5.3",
+    "platform": "Linux-6.18.33.2-microsoft-standard-WSL2-x86_64-desconocido-with-glibc2.43",
+    "python": "3.12.8",
+    "sqlite": "3.47.1"
+  },
+  "notes": [
+    "Index construction mirrors one immutable index file per revision; sqlite-vec includes the chunks join table used by search_vectors.",
+    "Search opens only indexes named by the preselected revision scope, gets top-k per index, then globally sorts and truncates to top-k.",
+    "L2 mode uses the legacy vec0 default and FAISS IndexFlatL2; FAISS squared L2 values are square-rooted here for score parity.",
+    "Cosine mode declares distance_metric=cosine in vec0 and uses normalized vectors with FAISS IndexFlatIP; score is 1 minus cosine similarity.",
+    "The 100k default run measures legacy L2 behavior; use --metric cosine for a bounded parity check of new explicit-metric indexes.",
+    "Artifact hashing is measured separately; project registry validation, hash-cache behavior, artifact publication, and text-offset validation are not included in search timings.",
+    "Random vectors measure backend mechanics, not semantic retrieval quality."
+  ],
+  "passed": true,
+  "process_memory": {
+    "baseline_rss_bytes": 73232384,
+    "note": "Process RSS includes Python, candidate libraries, source vectors, and resident index data. The resource.ru_maxrss value was anomalously identical across candidates and tiny fixtures in this WSL environment.",
+    "peak_rss_bytes": null,
+    "ru_maxrss_reported_bytes_unreliable": 566706176,
+    "peak_rss_unavailable_reason": "Linux /proc/self/status VmHWM capture was added after this run; this workload was not repeated for RSS.",
+    "source_vector_matrix_bytes": 30723072
+  },
+  "queries": {
+    "all_scope": {
+      "aggregation_seconds": 4e-05,
+      "candidate_count": 100,
+      "end_to_end_search_seconds": 0.073206,
+      "index_open_seconds": 0.00705,
+      "opened_revision_count": 10,
+      "result_count": 10,
+      "scope_preselection_verified": true,
+      "scope_selection_seconds": 1e-05,
+      "searched_revision_ids": [
+        "r0000",
+        "r0001",
+        "r0002",
+        "r0003",
+        "r0004",
+        "r0005",
+        "r0006",
+        "r0007",
+        "r0008",
+        "r0009"
+      ],
+      "top_hits": [
+        {
+          "chunk_id": "r0001-0000",
+          "distance": 1.1102230246251565e-16,
+          "revision_id": "r0001"
+        },
+        {
+          "chunk_id": "r0008-0645",
+          "distance": 0.8705950975418091,
+          "revision_id": "r0008"
+        },
+        {
+          "chunk_id": "r0004-0170",
+          "distance": 0.8723243474960327,
+          "revision_id": "r0004"
+        },
+        {
+          "chunk_id": "r0005-0134",
+          "distance": 0.8768702745437622,
+          "revision_id": "r0005"
+        },
+        {
+          "chunk_id": "r0000-0650",
+          "distance": 0.8785466551780701,
+          "revision_id": "r0000"
+        },
+        {
+          "chunk_id": "r0009-0130",
+          "distance": 0.8791086673736572,
+          "revision_id": "r0009"
+        },
+        {
+          "chunk_id": "r0009-0932",
+          "distance": 0.8814314603805542,
+          "revision_id": "r0009"
+        },
+        {
+          "chunk_id": "r0005-0102",
+          "distance": 0.8822972178459167,
+          "revision_id": "r0005"
+        },
+        {
+          "chunk_id": "r0000-0217",
+          "distance": 0.8830623030662537,
+          "revision_id": "r0000"
+        },
+        {
+          "chunk_id": "r0005-0221",
+          "distance": 0.8851481676101685,
+          "revision_id": "r0005"
+        }
+      ],
+      "vector_query_seconds": 0.063036
+    },
+    "selected_scope": {
+      "aggregation_seconds": 1.4e-05,
+      "candidate_count": 10,
+      "end_to_end_search_seconds": 0.007398,
+      "index_open_seconds": 0.00092,
+      "opened_revision_count": 1,
+      "result_count": 10,
+      "scope_preselection_verified": true,
+      "scope_selection_seconds": 6e-06,
+      "searched_revision_ids": [
+        "r0000"
+      ],
+      "top_hits": [
+        {
+          "chunk_id": "r0000-0650",
+          "distance": 0.8785466551780701,
+          "revision_id": "r0000"
+        },
+        {
+          "chunk_id": "r0000-0217",
+          "distance": 0.8830623030662537,
+          "revision_id": "r0000"
+        },
+        {
+          "chunk_id": "r0000-0740",
+          "distance": 0.8859307169914246,
+          "revision_id": "r0000"
+        },
+        {
+          "chunk_id": "r0000-0934",
+          "distance": 0.9051839113235474,
+          "revision_id": "r0000"
+        },
+        {
+          "chunk_id": "r0000-0708",
+          "distance": 0.9103060960769653,
+          "revision_id": "r0000"
+        },
+        {
+          "chunk_id": "r0000-0269",
+          "distance": 0.9111735224723816,
+          "revision_id": "r0000"
+        },
+        {
+          "chunk_id": "r0000-0960",
+          "distance": 0.913388192653656,
+          "revision_id": "r0000"
+        },
+        {
+          "chunk_id": "r0000-0659",
+          "distance": 0.9148521423339844,
+          "revision_id": "r0000"
+        },
+        {
+          "chunk_id": "r0000-0845",
+          "distance": 0.9166226983070374,
+          "revision_id": "r0000"
+        },
+        {
+          "chunk_id": "r0000-0105",
+          "distance": 0.9169067740440369,
+          "revision_id": "r0000"
+        }
+      ],
+      "vector_query_seconds": 0.006164
+    }
+  }
+}

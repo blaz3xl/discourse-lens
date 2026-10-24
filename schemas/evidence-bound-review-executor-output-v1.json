@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://discourselens.com/schemas/evidence-bound-review-executor-output-v1.json",
+  "title": "Evidence-bound framework review SkillExecutor output v1",
+  "description": "JSON field representation of the InterpretationResult returned by run_framework_review.",
+  "type": "object",
+  "required": ["analysis_run_id", "finding_id", "model_execution_id", "reranking_execution_id"],
+  "properties": {
+    "analysis_run_id": {"type": "string", "minLength": 1, "pattern": "\\S"},
+    "finding_id": {"type": "string", "minLength": 1, "pattern": "\\S"},
+    "model_execution_id": {"type": "string", "minLength": 1, "pattern": "\\S"},
+    "reranking_execution_id": {"type": ["string", "null"], "minLength": 1, "pattern": "\\S"}
+  },
+  "additionalProperties": false
+}

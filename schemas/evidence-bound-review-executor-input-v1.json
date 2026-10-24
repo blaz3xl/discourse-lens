@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://discourselens.com/schemas/evidence-bound-review-executor-input-v1.json",
+  "title": "Evidence-bound framework review SkillExecutor input v1",
+  "description": "JSON arguments passed to the framework-review executor; SkillContext and provider/reranking clients are injected runtime dependencies.",
+  "type": "object",
+  "required": ["finding_id", "preset_name", "framework_id"],
+  "properties": {
+    "finding_id": {"type": "string", "minLength": 1, "pattern": "\\S"},
+    "preset_name": {"type": "string", "minLength": 1, "pattern": "\\S"},
+    "framework_id": {"type": "string", "minLength": 1, "pattern": "\\S"},
+    "preset_snapshot": {"type": ["object", "null"]},
+    "reranking_provider_id": {"type": ["string", "null"], "minLength": 1, "pattern": "\\S"},
+    "reranking_credential_alias": {"type": ["string", "null"], "minLength": 1, "pattern": "\\S"},
+    "reranking_model": {"type": ["string", "null"], "minLength": 1, "pattern": "\\S"},
+    "reranking_top_n": {"type": ["integer", "null"], "minimum": 1}
+  },
+  "additionalProperties": false
+}

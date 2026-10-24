@@ -1,0 +1,11 @@
+# Optional web overlay: attach the web service to the private Ollama network.
+# Start the standalone Ollama project first to create that network.
+services:
+  web:
+    networks:
+      - default
+      - local-embeddings
+networks:
+  local-embeddings:
+    external: true
+    name: discourselens-local-embeddings

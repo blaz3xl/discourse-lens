@@ -1,0 +1,1 @@
+{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","required":["finding_id","phrase"],"properties":{"finding_id":{"type":"string"},"phrase":{"type":"string","minLength":1,"pattern":"\\S"}}}

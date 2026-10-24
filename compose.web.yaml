@@ -1,0 +1,58 @@
+# Password-protected browser workspace. Bind the host port to localhost and put
+# a TLS reverse proxy in front when remote access is required.
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        DISCOURSELENS_INSTALL_OCR: ${DISCOURSELENS_INSTALL_OCR:-1}
+    image: ${DISCOURSELENS_IMAGE:-discourselens:${COMPOSE_PROJECT_NAME}-web}
+    user: "${DISCOURSELENS_UID:-10001}:${DISCOURSELENS_GID:-10001}"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    init: true
+    restart: unless-stopped
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=128m
+    environment:
+      DISCOURSELENS_PROJECT_DIR: /workspace/project
+      DISCOURSELENS_WEB_AUTH_MODE: password
+      DISCOURSELENS_WEB_SESSION_SECRET: ${DISCOURSELENS_WEB_SESSION_SECRET:-}
+      DISCOURSELENS_WEB_ALLOW_REGISTRATION: ${DISCOURSELENS_WEB_ALLOW_REGISTRATION:-true}
+      DISCOURSELENS_WEB_COOKIE_SECURE: ${DISCOURSELENS_WEB_COOKIE_SECURE:-true}
+      DISCOURSELENS_MCP_PUBLIC_URL: ${DISCOURSELENS_MCP_PUBLIC_URL:-}
+      DISCOURSELENS_MCP_CONNECTOR_MODE: ${DISCOURSELENS_MCP_CONNECTOR_MODE:-}
+      DISCOURSELENS_MCP_OAUTH_ISSUER_URL: ${DISCOURSELENS_MCP_OAUTH_ISSUER_URL:-}
+      DISCOURSELENS_MCP_OAUTH_RESOURCE_URL: ${DISCOURSELENS_MCP_OAUTH_RESOURCE_URL:-}
+      DISCOURSELENS_MCP_OAUTH_AUDIENCE: ${DISCOURSELENS_MCP_OAUTH_AUDIENCE:-}
+      DISCOURSELENS_MCP_OAUTH_JWKS_URL: ${DISCOURSELENS_MCP_OAUTH_JWKS_URL:-}
+      DISCOURSELENS_MCP_OAUTH_REQUIRED_SCOPES: ${DISCOURSELENS_MCP_OAUTH_REQUIRED_SCOPES:-discourselens:read}
+      DISCOURSELENS_CREDENTIALS_ENCRYPTION_KEY: ${DISCOURSELENS_CREDENTIALS_ENCRYPTION_KEY:-}
+      DISCOURSELENS_WEB_HOST: 0.0.0.0
+      DISCOURSELENS_WEB_PORT: "8000"
+      DISCOURSELENS_WEB_PROXY_TRUSTED_IPS: ${DISCOURSELENS_WEB_PROXY_TRUSTED_IPS:-127.0.0.1,172.16.0.0/12}
+      DISCOURSELENS_WEB_PUBLIC_ORIGIN: ${DISCOURSELENS_WEB_PUBLIC_ORIGIN:-}
+    env_file:
+      - path: ${DISCOURSELENS_PROVIDER_ENV_FILE:-./provider.env}
+        required: false
+    command: ["discourselens-web"]
+    ports:
+      - "127.0.0.1:${DISCOURSELENS_WEB_PORT:-8000}:8000"
+    volumes:
+      - type: bind
+        source: ${DISCOURSELENS_PROJECT_DIR:?Set DISCOURSELENS_PROJECT_DIR to a host project directory}
+        target: /workspace/project
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=3)"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s

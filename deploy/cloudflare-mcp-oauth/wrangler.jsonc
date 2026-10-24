@@ -1,0 +1,23 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "discourselens-mcp-oauth",
+  "main": "src/index.ts",
+  "workers_dev": true,
+  "preview_urls": false,
+  "compatibility_date": "2026-10-05",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "kv_namespaces": [
+    {
+      "binding": "OAUTH_KV",
+      "id": "replace-with-your-oauth-kv-namespace-id"
+    }
+  ],
+  "vars": {
+    "MCP_AUTH_BASE_URL": "https://your-worker.your-account.workers.dev",
+    "MCP_RESOURCE_URL": "https://your-worker.your-account.workers.dev/mcp",
+    "OIDC_ISSUER_URL": "https://your-oidc-issuer.example",
+    "OIDC_CLIENT_ID": "replace-with-your-oidc-client-id",
+    "OIDC_TOKEN_AUTH_METHOD": "client_secret_basic",
+    "MCP_UPSTREAM_URL": "https://your-mcp-origin.example/mcp"
+  }
+}

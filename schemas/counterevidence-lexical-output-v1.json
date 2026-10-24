@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": [
+    "skill_run_id",
+    "evidence_ids",
+    "coverage_id",
+    "coverage_mode",
+    "population_count",
+    "candidate_count",
+    "query_interpretation"
+  ],
+  "properties": {
+    "skill_run_id": {"type": "string"},
+    "evidence_ids": {"type": "array", "items": {"type": "string"}},
+    "coverage_id": {"type": "string"},
+    "coverage_mode": {"const": "EXHAUSTIVE"},
+    "population_count": {"type": "integer", "minimum": 0},
+    "candidate_count": {"type": "integer", "minimum": 0},
+    "query_interpretation": {"type": "string"}
+  }
+}

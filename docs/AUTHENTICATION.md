@@ -1,0 +1,41 @@
+# Browser login
+
+The local browser app uses a username (email address) and password. Signup asks for those two values; the display name is derived from the username. Each account receives an isolated project under
+`DISCOURSELENS_PROJECT_DIR/tenants/`.
+
+Passwords are stored as salted scrypt hashes in a private SQLite database. The
+database never stores the original passwords. Login attempts are rate-limited.
+
+## Start and register
+
+Run the local launcher:
+
+```bash
+./scripts/start-local.sh
+```
+
+Open `http://127.0.0.1:8000`, choose **Crear una cuenta**, then enter a username
+and a password of at least 12 characters. Registration is enabled for this
+local app, and the host port is bound to localhost.
+
+The launcher keeps the session key and encrypted-provider key in a private
+`.env.local` file. Keep it stable across restarts. Account records and
+workspaces live in the project directory; do not commit that directory.
+
+## Manage accounts
+
+The Docker image includes `discourselens-web-user` for an operator to add
+accounts. For example:
+
+```bash
+docker compose --env-file .env.local -f compose.web.yaml run --rm web \
+  discourselens-web-user --project-dir /workspace/project create-user \
+  --name "Researcher Name" --email researcher@example.org
+```
+
+The command prompts for the password twice. Do not put a real password in a
+command line or commit account database files. To inspect the account count,
+replace `create-user ...` with `count`.
+
+MCP connector authorization is a separate feature with its own configuration;
+it does not reuse the browser account or session. See the [MCP setup guide](MCP_SETUP.md).

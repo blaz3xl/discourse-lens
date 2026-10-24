@@ -1,0 +1,20 @@
+{
+  "dataset": {
+    "chunks": 100000,
+    "dimensions": 768
+  },
+  "lancedb": {
+    "build_seconds": 3.168654,
+    "bytes": 307992218,
+    "copied_bytes": 307992218,
+    "copy_seconds": 0.278678,
+    "hits": 10,
+    "query_seconds": 1.289974,
+    "reopen_hits": 10,
+    "reopen_query_seconds": 2.919256,
+    "reopen_seconds": 0.008968,
+    "round_trip_matches": true
+  },
+  "note": "Random vectors measure mechanics, not semantic retrieval quality.",
+  "persistence_round_trip_passed": true
+}

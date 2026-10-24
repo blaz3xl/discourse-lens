@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://discourselens.com/schemas/research-bundle-v15.json",
+  "title": "DiscourseLens Research Bundle v15",
+  "description": "Version 14 evidence-span lineage with optional canonical source text for exact citation-location verification.",
+  "type": "object",
+  "required": [
+    "bundle_version", "project_format_version", "analysis_run", "findings",
+    "finding_lineage", "evidence", "finding_evidence_spans", "canonical_texts", "document_revisions",
+    "skill_runs", "coverage_descriptors", "model_executions", "retrieval_runs",
+    "retrieval_hits", "reranking_runs", "reranking_hits", "human_reviews",
+    "qualitative_coding", "integrity"
+  ],
+  "properties": {
+    "bundle_version": {"const": 15},
+    "project_format_version": {"$ref": "research-bundle-v14.json#/properties/project_format_version"},
+    "analysis_run": {"$ref": "research-bundle-v14.json#/properties/analysis_run"},
+    "findings": {"$ref": "research-bundle-v14.json#/properties/findings"},
+    "finding_lineage": {"$ref": "research-bundle-v14.json#/properties/finding_lineage"},
+    "evidence": {"$ref": "research-bundle-v14.json#/properties/evidence"},
+    "finding_evidence_spans": {"$ref": "research-bundle-v14.json#/properties/finding_evidence_spans"},
+    "canonical_texts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["revision_id", "sha256", "text"],
+        "properties": {
+          "revision_id": {"type": "string", "minLength": 1},
+          "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+          "text": {"type": "string"}
+        },
+        "additionalProperties": false
+      }
+    },
+    "document_revisions": {"$ref": "research-bundle-v14.json#/properties/document_revisions"},
+    "skill_runs": {"$ref": "research-bundle-v14.json#/properties/skill_runs"},
+    "coverage_descriptors": {"$ref": "research-bundle-v14.json#/properties/coverage_descriptors"},
+    "model_executions": {"$ref": "research-bundle-v14.json#/properties/model_executions"},
+    "retrieval_runs": {"$ref": "research-bundle-v14.json#/properties/retrieval_runs"},
+    "retrieval_hits": {"$ref": "research-bundle-v14.json#/properties/retrieval_hits"},
+    "reranking_runs": {"$ref": "research-bundle-v14.json#/properties/reranking_runs"},
+    "reranking_hits": {"$ref": "research-bundle-v14.json#/properties/reranking_hits"},
+    "human_reviews": {"$ref": "research-bundle-v14.json#/properties/human_reviews"},
+    "qualitative_coding": {"$ref": "research-bundle-v14.json#/properties/qualitative_coding"},
+    "integrity": {"$ref": "research-bundle-v14.json#/properties/integrity"}
+  },
+  "additionalProperties": false
+}

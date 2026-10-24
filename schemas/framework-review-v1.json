@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://discourselens.com/schemas/framework-review-v1.json",
+  "title": "Evidence-bound framework review model output v1",
+  "description": "Provider-facing framework review response with model observation descriptions retained only as UNVERIFIED candidates tied to exact excerpts from supplied textual evidence.",
+  "type": "object",
+  "required": [
+    "observations",
+    "interpretation",
+    "alternative_interpretation",
+    "evidence_ids",
+    "counterevidence_ids",
+    "limitations"
+  ],
+  "properties": {
+    "observations": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["evidence_id", "excerpt", "description"],
+        "properties": {
+          "evidence_id": {"type": "string", "minLength": 1},
+          "excerpt": {"type": "string", "minLength": 1},
+          "description": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Model-supplied candidate description. Core persists this only as an UNVERIFIED candidate and constructs Finding.observation from the exact excerpt."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "interpretation": {"type": "string", "minLength": 1},
+    "alternative_interpretation": {"type": "string", "minLength": 1},
+    "evidence_ids": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+    "counterevidence_ids": {"type": "array", "items": {"type": "string"}},
+    "limitations": {"type": "array", "items": {"type": "string"}}
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,9 @@
+name: discourselens-spike-004
+services:
+  stdio:
+    build: .
+    read_only: true
+    tmpfs: [/tmp]
+    user: "10001:10001"
+    stdin_open: true
+    tty: false

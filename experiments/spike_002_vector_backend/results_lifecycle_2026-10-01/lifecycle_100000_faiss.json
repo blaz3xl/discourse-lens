@@ -1,0 +1,46 @@
+{
+  "candidate": "faiss",
+  "dataset": {
+    "append_count": 10000,
+    "chunks": 100000,
+    "dimensions": 768
+  },
+  "faiss": {
+    "append_count": 10000,
+    "append_query_top1": "append-00000000",
+    "append_seconds": 0.853386,
+    "checks": {
+      "append_query_finds_new_vector": true,
+      "copied_reopen_preserves_top10": true,
+      "delete_removes_appended_rows": true,
+      "rebuild_preserves_base_top10": true
+    },
+    "copied_bytes": 308000090,
+    "copy_seconds": 0.87805,
+    "delete_seconds": 0.022897,
+    "deleted_ids_absent_from_query": true,
+    "index_type": "IndexIDMap2(IndexFlatL2)",
+    "passed": true,
+    "rebuild_query_top10": [
+      "base-00000000",
+      "base-00088405",
+      "base-00026370",
+      "base-00059186",
+      "base-00088660",
+      "base-00016226",
+      "base-00015479",
+      "base-00099438",
+      "base-00037044",
+      "base-00036970"
+    ],
+    "rebuild_seconds": 0.490184,
+    "rebuilt_bytes": 308000090,
+    "removed_count": 10000,
+    "reopen_query_seconds": 0.076861,
+    "reopen_seconds": 1.53776,
+    "reopened_rows": 100000,
+    "rows_after_delete": 100000
+  },
+  "lifecycle_passed": true,
+  "note": "Deterministic random vectors measure index mechanics, not semantic retrieval quality."
+}

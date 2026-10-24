@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://discourselens.com/schemas/finding-report-v1.json",
+  "title": "DiscourseLens Finding Report v1",
+  "type": "object",
+  "required": ["finding", "coverage", "evidence", "human_reviews"],
+  "properties": {
+    "finding": {
+      "type": "object",
+        "required": ["id", "analysis_run_id", "skill_run_id", "skill_id", "skill_version", "phenomenon", "observation", "interpretation", "alternative_interpretation", "claim_types_json", "coverage_id", "evidence_sufficiency", "interpretation_confidence", "limitations_json", "review_status", "created_at", "finalized_at"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "analysis_run_id": {"type": "string", "minLength": 1},
+        "skill_run_id": {"type": ["string", "null"]},
+        "skill_id": {"type": "string", "minLength": 1},
+        "skill_version": {"type": "string", "minLength": 1},
+        "phenomenon": {"type": "string"},
+        "observation": {"type": "string"},
+        "interpretation": {"type": ["string", "null"]},
+        "alternative_interpretation": {"type": ["string", "null"]},
+        "claim_types_json": {
+          "type": "string",
+          "minLength": 2,
+          "pattern": "^\\s*\\[(?:\\s*\"(?:OBSERVATIONAL|EXAMPLE_BASED|INTERPRETIVE|COMPARATIVE|QUANTIFIED|ABSENCE|UNIVERSAL|CONTEXTUAL)\"(?:\\s*,\\s*\"(?:OBSERVATIONAL|EXAMPLE_BASED|INTERPRETIVE|COMPARATIVE|QUANTIFIED|ABSENCE|UNIVERSAL|CONTEXTUAL)\")*)?\\s*\\]\\s*$",
+          "description": "JSON-encoded claim type array. The Core validates claim semantics; this interchange schema constrains only its serialized field shape."
+        },
+        "coverage_id": {"type": ["string", "null"]},
+        "evidence_sufficiency": {"enum": ["SUFFICIENT", "LIMITED", "INSUFFICIENT"]},
+        "interpretation_confidence": {"enum": ["HIGH", "MEDIUM", "LOW"]},
+        "limitations_json": {"type": "string", "minLength": 2},
+        "review_status": {"enum": ["GENERATED", "ACCEPTED", "MODIFIED", "REJECTED"]},
+        "created_at": {"type": "string"},
+        "observation_truncated": {"type": "boolean"},
+        "interpretation_truncated": {"type": "boolean"},
+        "alternative_interpretation_truncated": {"type": "boolean"},
+        "limitations_json_truncated": {"type": "boolean"},
+        "finalized_at": {"type": ["string", "null"]}
+      },
+      "additionalProperties": false
+    },
+    "coverage": {"$ref": "coverage-disclosure-v1.json"},
+    "evidence_total": {"type": "integer", "minimum": 0},
+    "evidence_truncated": {"type": "boolean"},
+    "observation_candidate_total": {"type": "integer", "minimum": 0},
+    "observation_candidates_truncated": {"type": "boolean"},
+    "human_review_total": {"type": "integer", "minimum": 0},
+    "human_reviews_truncated": {"type": "boolean"},
+    "evidence": {
+      "type": "array",
+      "items": {"$ref": "evidence-reference-v1.json"},
+      "minItems": 1
+    },
+    "observation_candidates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "evidence_id", "excerpt", "description", "status", "citation"],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "evidence_id": {"type": "string", "minLength": 1},
+          "excerpt": {"type": "string", "minLength": 1},
+          "description": {"type": "string", "minLength": 1},
+          "status": {"const": "UNVERIFIED"},
+          "citation": {"type": "string", "minLength": 1}
+        },
+        "additionalProperties": false
+      }
+    },
+    "human_reviews": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "status", "note", "created_at"],
+        "properties": {
+          "id": {"type": "string"},
+          "status": {"enum": ["ACCEPTED", "MODIFIED", "REJECTED"]},
+          "note": {"type": ["string", "null"]},
+          "created_at": {"type": "string"},
+          "note_truncated": {"type": "boolean"}
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {"required": ["evidence_total"]},
+      "then": {
+        "required": [
+          "evidence_truncated",
+          "human_review_total",
+          "human_reviews_truncated"
+        ]
+      }
+    }
+  ],
+  "additionalProperties": false
+}

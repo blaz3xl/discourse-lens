@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://discourselens.com/benchmarks/schemas/retrieval-ranking-results-v1.json",
+  "title": "Retrieval Ranked Unit Results v1",
+  "description": "Ranked-unit rows grouped by retriever and query.",
+  "type": "object",
+  "required": ["schema_version", "unit_kind", "retrievers"],
+  "properties": {
+    "schema_version": {"const": "retrieval-ranking-results-v1"},
+    "unit_kind": {"enum": ["DOCUMENT_REVISION", "SOURCE_SPAN", "CHUNK"]},
+    "chunker_provenance": {"$ref": "#/$defs/chunkerProvenance"},
+    "retrievers": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["retriever_id", "query_results"],
+        "properties": {
+          "retriever_id": {"type": "string", "minLength": 1, "pattern": "\\S"},
+          "query_results": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["query_id", "results"],
+              "properties": {
+                "query_id": {"type": "string", "minLength": 1, "pattern": "\\S"},
+                "results": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": ["unit_id", "rank"],
+                    "properties": {
+                      "unit_id": {"type": "string", "minLength": 1, "pattern": "\\S"},
+                      "rank": {"type": "integer", "minimum": 1}
+                    },
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {"unit_kind": {"const": "CHUNK"}},
+        "required": ["unit_kind"]
+      },
+      "then": {"required": ["chunker_provenance"]}
+    },
+    {
+      "if": {
+        "properties": {"unit_kind": {"enum": ["DOCUMENT_REVISION", "SOURCE_SPAN"]}},
+        "required": ["unit_kind"]
+      },
+      "then": {"not": {"required": ["chunker_provenance"]}}
+    }
+  ],
+  "$defs": {
+    "chunkerProvenance": {
+      "type": "object",
+      "required": ["name", "version", "configuration"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1, "pattern": "\\S"},
+        "version": {"type": "string", "minLength": 1, "pattern": "\\S"},
+        "configuration": {"type": "string", "minLength": 1, "pattern": "\\S"}
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

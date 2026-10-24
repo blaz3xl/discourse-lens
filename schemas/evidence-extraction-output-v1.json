@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://discourselens.com/schemas/evidence-extraction-output-v1.json",
+  "title": "Descriptive Evidence Extraction Output v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "skill_run_id",
+    "finding_ids",
+    "evidence_ids",
+    "coverage_id",
+    "population_count",
+    "candidate_count",
+    "selected_count"
+  ],
+  "properties": {
+    "skill_run_id": {"type": "string"},
+    "finding_ids": {"type": "array", "items": {"type": "string"}},
+    "evidence_ids": {"type": "array", "items": {"type": "string"}},
+    "coverage_id": {"type": "string"},
+    "population_count": {"type": "integer", "minimum": 0},
+    "candidate_count": {"type": "integer", "minimum": 0},
+    "selected_count": {"type": "integer", "minimum": 0}
+  }
+}

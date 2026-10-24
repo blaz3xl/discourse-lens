@@ -1,0 +1,131 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://discourselens.com/schemas/synthesis-model-input-v1.json",
+  "title": "Synthesis model research-data input v1",
+  "description": "The untrusted JSON research-data block sent to the synthesis model, not the SkillExecutor arguments. Source-specific roles are carried by evidence_links; shared evidence_records intentionally have no role field.",
+  "type": "object",
+  "required": ["source_findings", "evidence_records"],
+  "$defs": {
+    "coverageDescriptor": {
+      "type": "object",
+      "required": [
+        "coverage_mode",
+        "scope_snapshot_id",
+        "population_definition",
+        "population_count",
+        "selection_policy",
+        "inspection_count",
+        "completion_criterion",
+        "termination_reason",
+        "termination_state",
+        "negative_result_status"
+      ],
+      "properties": {
+        "coverage_mode": {"enum": ["EXAMPLE_BASED", "TARGETED", "BROAD", "EXHAUSTIVE"]},
+        "scope_snapshot_id": {"type": "string", "minLength": 1},
+        "population_definition": {"type": ["string", "null"]},
+        "population_count": {"type": ["integer", "null"], "minimum": 0},
+        "selection_policy": {"type": ["string", "null"]},
+        "inspection_count": {"type": ["integer", "null"], "minimum": 0},
+        "completion_criterion": {"type": ["string", "null"]},
+        "termination_reason": {"type": ["string", "null"]},
+        "termination_state": {"enum": ["COMPLETED", "LIMIT_REACHED", "FAILED", "CANCELLED", "UNKNOWN", null]},
+        "negative_result_status": {"enum": ["NOT_APPLICABLE", "NO_SEARCHABLE_TERMS", "NO_MATCHES_UNDER_PLAN", "ABSENCE_IN_EXHAUSTIVE_POPULATION"]}
+      },
+      "additionalProperties": false
+    }
+  },
+  "properties": {
+    "source_findings": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["finding_id", "skill_id", "phenomenon", "observation", "interpretation", "alternative_interpretation", "claim_types", "limitations", "coverage_id", "coverage", "evidence_links"],
+        "properties": {
+          "finding_id": {"type": "string", "minLength": 1},
+          "skill_id": {"type": "string", "minLength": 1},
+          "phenomenon": {"type": "string", "minLength": 1},
+          "observation": {"type": "string", "minLength": 1},
+          "interpretation": {"type": ["string", "null"]},
+          "alternative_interpretation": {"type": ["string", "null"]},
+          "claim_types": {
+            "type": "array",
+            "items": {"enum": ["OBSERVATIONAL", "EXAMPLE_BASED", "INTERPRETIVE", "COMPARATIVE", "QUANTIFIED", "ABSENCE", "UNIVERSAL", "CONTEXTUAL"]}
+          },
+          "limitations": {"type": "array", "items": {"type": "string"}},
+          "coverage_id": {"type": ["string", "null"], "minLength": 1},
+          "coverage": {
+            "oneOf": [
+              {"$ref": "#/$defs/coverageDescriptor"},
+              {"type": "null"}
+            ]
+          },
+          "evidence_links": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["evidence_id", "role", "rationale"],
+              "properties": {
+                "evidence_id": {"type": "string", "minLength": 1},
+                "role": {"enum": ["SUPPORT", "COUNTEREVIDENCE", "EXCEPTION", "EXAMPLE", "CONTEXT", "ALTERNATIVE"]},
+                "rationale": {"type": ["string", "null"]}
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "evidence_records": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": ["evidence_id", "evidence_kind", "citation", "excerpt", "provenance_class"],
+            "properties": {
+              "evidence_id": {"type": "string", "minLength": 1},
+              "evidence_kind": {"const": "TEXTUAL"},
+              "citation": {"type": "string", "minLength": 1},
+              "excerpt": {"type": "string", "minLength": 1},
+              "provenance_class": {"const": "CANONICAL_DOCUMENT_TEXT"}
+            },
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "required": ["evidence_id", "evidence_kind", "citation", "source", "title", "retrieved_at", "excerpt", "provenance_class"],
+            "properties": {
+              "evidence_id": {"type": "string", "minLength": 1},
+              "evidence_kind": {"const": "EXTERNAL_SOURCE"},
+              "citation": {"type": "string", "minLength": 1},
+              "source": {"type": "string", "minLength": 1},
+              "title": {"type": ["string", "null"]},
+              "retrieved_at": {"type": "string", "minLength": 1},
+              "excerpt": {"type": "string", "minLength": 1},
+              "provenance_class": {"const": "EXTERNAL_SOURCE_USER_SUPPLIED_NOT_INDEPENDENTLY_VERIFIED"}
+            },
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "required": ["evidence_id", "evidence_kind", "citation", "label", "content", "provenance_class"],
+            "properties": {
+              "evidence_id": {"type": "string", "minLength": 1},
+              "evidence_kind": {"const": "USER_CONTEXT"},
+              "citation": {"type": "string", "minLength": 1},
+              "label": {"type": "string", "minLength": 1},
+              "content": {"type": "string", "minLength": 1},
+              "provenance_class": {"const": "RESEARCHER_SUPPLIED_CONTEXT_NOT_CORPUS_TEXT"}
+            },
+            "additionalProperties": false
+          }
+        ]
+      }
+    }
+  },
+  "additionalProperties": false
+}

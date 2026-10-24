@@ -1,0 +1,24 @@
+# Temporary Cloudflare Quick Tunnel to the read-only MCP origin. The public
+# hostname changes on restart; the OAuth Worker holds the required backend
+# bearer token and is the only client that should know it.
+services:
+  cloudflare-mcp-origin:
+    image: cloudflare/cloudflared@sha256:072c067d25ccbe61d46e18f0d0723255f2bb5304f7317caa95b27031520ff92c
+    profiles: [mcp-cloudflare-preview]
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    init: true
+    restart: unless-stopped
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    command:
+      - tunnel
+      - --no-autoupdate
+      - --url
+      - http://mcp-http:8001
+    depends_on:
+      mcp-http:
+        condition: service_healthy

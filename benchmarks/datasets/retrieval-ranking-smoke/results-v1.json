@@ -1,0 +1,25 @@
+{
+  "schema_version": "retrieval-ranking-results-v1",
+  "unit_kind": "CHUNK",
+  "chunker_provenance": {
+    "name": "synthetic-smoke-fixed-chunker",
+    "version": "1",
+    "configuration": "fixed-hand-authored-unit-ids"
+  },
+  "retrievers": [
+    {
+      "retriever_id": "synthetic-order",
+      "query_results": [
+        {
+          "query_id": "q1",
+          "results": [
+            {"unit_id": "unit-c", "rank": 1},
+            {"unit_id": "unit-b", "rank": 2},
+            {"unit_id": "unit-a", "rank": 3}
+          ]
+        },
+        {"query_id": "q2", "results": []}
+      ]
+    }
+  ]
+}

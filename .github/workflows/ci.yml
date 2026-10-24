@@ -1,0 +1,211 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  platform-smoke:
+    name: Native smoke (${{ matrix.os }}, Python ${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python-version: ["3.12", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: 0.12.19
+      - run: uv sync --locked --extra dev
+      - name: Verify native CLI, wheel and document-engine workflows
+        shell: bash
+        run: |
+          uv run discourselens --version
+          uv run pytest -q tests/test_foundation.py tests/test_pdf_documents.py tests/test_textual_documents.py tests/test_packaging_smoke.py
+
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: 0.12.19
+      - run: uv sync --locked --extra web --extra corpus --extra vectors --extra dev
+      - name: Build wheel and verify bundled skill resources
+        run: |
+          uv build --wheel --out-dir "$RUNNER_TEMP/discourselens-wheel"
+          wheel=$(find "$RUNNER_TEMP/discourselens-wheel" -maxdepth 1 -name 'discourselens-*.whl' -print -quit)
+          target="$RUNNER_TEMP/discourselens-installed-wheel"
+          project="$RUNNER_TEMP/discourselens-mcp-project"
+          uv pip install --python .venv/bin/python --target "$target" --no-deps "$wheel"
+          PYTHONPATH="$target" .venv/bin/python - "$target" "$project" <<'PY'
+          import asyncio
+          import subprocess
+          import sys
+          from pathlib import Path
+
+          from discourselens import Project
+          from mcp import ClientSession, StdioServerParameters
+          from mcp.client.stdio import stdio_client
+
+          target, project = map(Path, sys.argv[1:])
+          for executable, prefix in (
+              (target / "bin" / "discourselens", "DiscourseLens "),
+              (target / "bin" / "discourselens-mcp", "DiscourseLens MCP "),
+          ):
+              version = subprocess.run(
+                  [str(executable), "--version"], capture_output=True, text=True, check=True
+              )
+              assert version.stdout.startswith(prefix) and not version.stderr
+          source_schema_dir = Path.cwd() / "schemas"
+          expected_schema_names = {item.name for item in source_schema_dir.glob("*.json")}
+          assert expected_schema_names, f"no source schemas found in {source_schema_dir}"
+          schema_dir = target / "discourselens" / "_resources" / "schemas"
+          bundled_schema_names = {item.name for item in schema_dir.glob("*.json")}
+          assert expected_schema_names <= bundled_schema_names, (
+              f"wheel is missing schemas: {sorted(expected_schema_names - bundled_schema_names)}"
+          )
+          Project.init(project).close()
+
+          async def main():
+              params = StdioServerParameters(
+                  command=str(target / "bin" / "discourselens-mcp"),
+                  args=["--project", str(project)],
+                  env={"PYTHONPATH": str(target), "DISCOURSELENS_PROJECT": str(project)},
+              )
+              async with stdio_client(params) as (read, write):
+                  async with ClientSession(read, write) as session:
+                      await session.initialize()
+                      templates = await session.list_resource_templates()
+                      assert any(
+                          item.uri_template == "discourselens://skills/{skill_id}/methodology"
+                          for item in templates.resource_templates
+                      )
+                      resource = await session.read_resource(
+                          "discourselens://skills/builtin.evidence-extraction/methodology"
+                      )
+                      assert resource.contents[0].text.startswith(
+                          "# Descriptive evidence extraction"
+                      )
+                      tools = await session.list_tools()
+                      assert {"list_skills", "get_skill"} <= {tool.name for tool in tools.tools}
+
+          asyncio.run(main())
+          print("installed wheel MCP stdio handshake, tools and skill resource verified")
+          PY
+          .venv/bin/python - "$wheel" <<'PY'
+          import sys
+
+          wheel = sys.argv[1]
+          sys.path.insert(0, wheel)
+          from discourselens.skills import BUILTIN_SKILLS, skill_resource_text
+
+          for manifest in BUILTIN_SKILLS.manifests():
+              skill_resource_text(manifest.documentation_ref)
+              skill_resource_text(manifest.input_schema_ref)
+              skill_resource_text(manifest.output_schema_ref)
+          print(f"verified bundled resources for {len(BUILTIN_SKILLS.manifests())} built-in skills")
+          PY
+      - run: .venv/bin/python -m pytest -q
+      - run: .venv/bin/ruff check src tests
+      - run: .venv/bin/pyright
+      - run: .venv/bin/python -m py_compile $(find src tests -name '*.py')
+      - name: Validate Docker Compose port isolation
+        env:
+          DISCOURSELENS_PROJECT_DIR: ${{ runner.temp }}/discourselens-project
+        run: |
+          docker compose config --format json | python -c 'import json,sys; config=json.load(sys.stdin); services=config["services"]; assert services and all(not service.get("ports") for service in services.values()), "Compose must not publish host ports"'
+      - name: Build and smoke-test Docker image
+        run: |
+          docker build --tag discourselens:ci .
+          docker run --rm discourselens:ci
+          test "$(docker image inspect discourselens:ci --format '{{.Config.User}}')" = "10001:10001"
+          test "$(docker image inspect discourselens:ci --format '{{json .Config.ExposedPorts}}')" = "null"
+      - name: Verify Docker MCP stdio without published ports
+        run: |
+          set -euo pipefail
+          project="$RUNNER_TEMP/discourselens-docker-mcp-project"
+          mkdir -p "$project"
+          .venv/bin/discourselens project init "$project"
+          chmod -R u+rwX "$project"
+          response="$({
+            printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"ci-docker-smoke","version":"1"}}}'
+            sleep 1
+            printf '%s\n' '{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}'
+            printf '%s\n' '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}'
+            sleep 1
+          } | docker run --rm -i --read-only --tmpfs /tmp --user "$(id -u):$(id -g)" \
+            --cap-drop ALL --security-opt no-new-privileges --network none \
+            -v "$project:/workspace/project:rw" discourselens:ci \
+            discourselens-mcp --project /workspace/project)"
+          printf '%s\n' "$response" | python -c '
+          import json, sys
+          messages = [json.loads(line) for line in sys.stdin if line.strip()]
+          assert any(message.get("id") == 1 and "result" in message for message in messages)
+          tools = next(message["result"]["tools"] for message in messages if message.get("id") == 2)
+          assert tools, "Docker MCP server returned no tools"
+          print(f"Docker MCP stdio verified: {len(tools)} tools; no network or published ports")
+          '
+      - name: Verify opt-in local OCR in Docker without network
+        run: |
+          set -euo pipefail
+          docker build --build-arg DISCOURSELENS_INSTALL_OCR=1 --tag discourselens:ci-ocr .
+          project="$RUNNER_TEMP/discourselens-docker-ocr-project"
+          source="$RUNNER_TEMP/discourselens-docker-ocr-fixture.pdf"
+          mkdir -p "$project"
+          .venv/bin/discourselens project init "$project"
+          .venv/bin/python - "$source" <<'PY'
+          import sys
+          import pymupdf
+
+          page_pdf = pymupdf.open()
+          page = page_pdf.new_page(width=612, height=792)
+          page.insert_text((54, 120), "Local OCR should recover migration evidence.", fontsize=24)
+          image = page.get_pixmap(matrix=pymupdf.Matrix(2, 2), alpha=False).tobytes("png")
+          image_pdf = pymupdf.open()
+          image_pdf.new_page(width=612, height=792).insert_image(
+              image_pdf[0].rect, stream=image
+          )
+          image_pdf.save(sys.argv[1])
+          PY
+          result="$(docker run --rm --read-only --tmpfs /tmp \
+            --user "$(id -u):$(id -g)" --cap-drop ALL \
+            --security-opt no-new-privileges --network none \
+            -v "$project:/workspace/project:rw" -v "$source:/tmp/scan.pdf:ro" \
+            discourselens:ci-ocr discourselens document import \
+            /workspace/project /tmp/scan.pdf --ocr-language eng --ocr-dpi 250)"
+          printf '%s\n' "$result" | .venv/bin/python -c '
+          import json,sys
+          result=json.load(sys.stdin)
+          assert result["status"] == "SUCCESS_WITH_WARNINGS", result
+          assert "LOCAL_OCR_ENABLED" in result["warnings"], result
+          print("Docker local OCR import status and provenance verified")
+          '
+          .venv/bin/python - "$project" "$result" <<'PY'
+          import json
+          import sys
+          from discourselens import Project
+
+          project = Project.open(sys.argv[1])
+          revision = json.loads(sys.argv[2])["revision_id"]
+          text = project.revision_text(revision)
+          assert "Local OCR should recover" in text, text
+          assert "migration evidence" in text, text
+          project.close()
+          print("Docker OCR canonical text verified")
+          PY

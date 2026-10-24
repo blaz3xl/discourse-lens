@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://discourselens.com/schemas/van-dijk-group-comparison-output-v1.json",
+  "title": "Van Dijk Group Comparison Preparation Output v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "skill_run_id",
+    "finding_id",
+    "coverage_id",
+    "scope_snapshot_id",
+    "artifact_type",
+    "shared_topic_event",
+    "comparability_basis",
+    "codebook_id",
+    "codebook_name",
+    "count_basis",
+    "claim_semantics",
+    "selected_annotation_count",
+    "groups",
+    "evidence_ids",
+    "limitations"
+  ],
+  "properties": {
+    "skill_run_id": {"type": "string"},
+    "finding_id": {"type": "string"},
+    "coverage_id": {"type": "string"},
+    "scope_snapshot_id": {"type": "string"},
+    "artifact_type": {"const": "descriptive_qualitative_group_comparison_preparation"},
+    "shared_topic_event": {"type": "string"},
+    "comparability_basis": {"type": "string"},
+    "codebook_id": {"type": "string"},
+    "codebook_name": {"type": "string"},
+    "count_basis": {"const": "SELECTED_ANNOTATIONS"},
+    "claim_semantics": {"const": "EXAMPLE_BASED"},
+    "selected_annotation_count": {"type": "integer", "minimum": 1},
+    "groups": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "label",
+          "selected_annotation_count",
+          "coding_status",
+          "code_counts",
+          "annotations"
+        ],
+        "properties": {
+          "label": {"type": "string"},
+          "selected_annotation_count": {"type": "integer", "minimum": 0},
+          "coding_status": {"enum": ["CODED", "UNKNOWN"]},
+          "code_counts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["code_id", "label", "selected_annotation_count"],
+              "properties": {
+                "code_id": {"type": "string"},
+                "label": {"type": "string"},
+                "selected_annotation_count": {"type": "integer", "minimum": 0}
+              }
+            }
+          },
+          "annotations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "annotation_id",
+                "code_id",
+                "code_label",
+                "code_definition",
+                "span_id",
+                "revision_id",
+                "start_offset",
+                "end_offset",
+                "text",
+                "evidence_id",
+                "citation"
+              ],
+              "properties": {
+                "annotation_id": {"type": "string"},
+                "code_id": {"type": "string"},
+                "code_label": {"type": "string"},
+                "code_definition": {"type": ["string", "null"]},
+                "span_id": {"type": "string"},
+                "revision_id": {"type": "string"},
+                "start_offset": {"type": "integer", "minimum": 0},
+                "end_offset": {"type": "integer", "minimum": 0},
+                "text": {"type": "string"},
+                "evidence_id": {"type": "string"},
+                "citation": {"type": "string"}
+              }
+            }
+          }
+        }
+      }
+    },
+    "evidence_ids": {"type": "array", "items": {"type": "string"}},
+    "limitations": {"type": "array", "items": {"type": "string"}}
+  }
+}

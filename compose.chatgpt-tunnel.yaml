@@ -1,0 +1,47 @@
+# Private ChatGPT connector profile: read-only MCP behind OpenAI's official
+# tunnel-client. No public listener is added for the MCP service.
+services:
+  mcp-http:
+    user: "${DISCOURSELENS_UID:-10001}:${DISCOURSELENS_GID:-10001}"
+    environment:
+      DISCOURSELENS_MCP_HTTP_TOKEN: ""
+      DISCOURSELENS_MCP_HTTP_TOKEN_FILE: /run/secrets/mcp-http-token
+    secrets:
+      - mcp-http-token
+
+  tunnel-client:
+    profiles: ["chatgpt-tunnel"]
+    image: ghcr.io/openai/tunnel-client:v0.0.17@sha256:67b473b4bc23bc984e4a381752e9a2fa75649746edc06e46b27025611835c5c0
+    user: "${DISCOURSELENS_UID:-10001}:${DISCOURSELENS_GID:-10001}"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    init: true
+    restart: unless-stopped
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    command:
+      - --control-plane.tunnel-id=${DISCOURSELENS_OPENAI_TUNNEL_ID:?Set DISCOURSELENS_OPENAI_TUNNEL_ID}
+      - --control-plane.api-key=file:/run/secrets/openai-runtime-api-key
+      - --mcp.server-url=http://mcp-http:8001/mcp
+      - "--mcp.extra-headers=Authorization: file:/run/secrets/mcp-http-token"
+      - "--mcp.discovery-extra-headers=Authorization: file:/run/secrets/mcp-http-token"
+      - --mcp.startup-wait-timeout=60s
+      - --health.listen-addr=0.0.0.0:8080
+      - --log.format=json
+    ports:
+      - "127.0.0.1:${DISCOURSELENS_TUNNEL_HEALTH_PORT:-8081}:8080"
+    depends_on:
+      mcp-http:
+        condition: service_healthy
+    secrets:
+      - openai-runtime-api-key
+      - mcp-http-token
+
+secrets:
+  openai-runtime-api-key:
+    file: ${DISCOURSELENS_OPENAI_RUNTIME_KEY_FILE:?Set DISCOURSELENS_OPENAI_RUNTIME_KEY_FILE}
+  mcp-http-token:
+    file: ${DISCOURSELENS_MCP_HTTP_TOKEN_FILE:?Set DISCOURSELENS_MCP_HTTP_TOKEN_FILE}

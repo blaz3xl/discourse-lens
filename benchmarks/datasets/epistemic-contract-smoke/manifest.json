@@ -1,0 +1,14 @@
+{
+  "dataset_id": "epistemic-contract-smoke-v1",
+  "title": "Epistemic contract smoke fixtures",
+  "dataset_label": "SYNTHETIC_CONTRACT_FIXTURES_NOT_VALIDATION",
+  "purpose": "Exercise the record and evidence-contract shape using wholly synthetic text; not a benchmark or validation set.",
+  "case_file": "cases.jsonl",
+  "case_schema": "../../schemas/case-v1.json",
+  "case_count": 6,
+  "languages": ["en", "es", "ar"],
+  "content_origin": "All passages, tasks, and names are synthetic placeholders and were not sampled from real people or a corpus.",
+  "scientific_validation": "None claimed; no performance or validity estimates are provided.",
+  "license_status": "PENDING_PROJECT_LICENSE_DECISION",
+  "distribution_status": "INTERNAL_REPOSITORY_ONLY; DO_NOT_PUBLISH_OR_REDISTRIBUTE_UNTIL_LICENSE_DECISION_IS_CLOSED"
+}

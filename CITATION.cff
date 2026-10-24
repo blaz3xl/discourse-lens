@@ -1,0 +1,6 @@
+cff-version: 1.2.0
+message: "If you use DiscourseLens in academic work, please cite the software and its release version."
+title: "DiscourseLens"
+version: "0.1.0"
+date-released: "2026-09-25"
+type: software

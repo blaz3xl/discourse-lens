@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://discourselens.com/schemas/synthesis-executor-input-v1.json",
+  "title": "Synthesis SkillExecutor input v1",
+  "description": "JSON arguments passed to builtin.synthesis; project/run context and the provider factory are injected runtime dependencies.",
+  "type": "object",
+  "required": ["finding_ids", "preset_name", "preset_snapshot"],
+  "properties": {
+    "finding_ids": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1, "pattern": "\\S"}},
+    "preset_name": {"type": "string", "minLength": 1, "pattern": "\\S"},
+    "preset_snapshot": {"type": "object"}
+  },
+  "additionalProperties": false
+}

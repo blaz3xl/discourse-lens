@@ -1,0 +1,12 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "discourselens-web",
+  "main": "src/web_proxy.ts",
+  "workers_dev": true,
+  "preview_urls": false,
+  "compatibility_date": "2026-10-05",
+  "compatibility_flags": ["global_fetch_strictly_public"],
+  "vars": {
+    "WEB_UPSTREAM_URL": "https://replace-with-your-origin.trycloudflare.com"
+  }
+}

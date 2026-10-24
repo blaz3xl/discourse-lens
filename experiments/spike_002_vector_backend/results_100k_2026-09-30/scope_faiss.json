@@ -1,0 +1,16 @@
+{
+  "fixture": "B is intentionally nearer than every A vector",
+  "nearest_unfiltered_scope": "B",
+  "note": "Random vectors and this adversarial fixture assess mechanics only, not semantic quality.",
+  "passed": true,
+  "scope_filter_checks": {
+    "faiss": {
+      "hits": 10,
+      "passed": true,
+      "returned_scopes": [
+        "A"
+      ],
+      "strategy": "select the approved per-revision index before search"
+    }
+  }
+}

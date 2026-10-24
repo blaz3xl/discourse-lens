@@ -1,0 +1,20 @@
+{
+  "dataset": {
+    "chunks": 100000,
+    "dimensions": 768
+  },
+  "note": "Random vectors measure mechanics, not semantic retrieval quality.",
+  "persistence_round_trip_passed": true,
+  "sqlite-vec": {
+    "build_seconds": 52.853813,
+    "bytes": 316776448,
+    "copied_bytes": 316776448,
+    "copy_seconds": 0.720707,
+    "hits": 10,
+    "query_seconds": 0.43687,
+    "reopen_hits": 10,
+    "reopen_query_seconds": 0.774064,
+    "reopen_seconds": 0.001315,
+    "round_trip_matches": true
+  }
+}

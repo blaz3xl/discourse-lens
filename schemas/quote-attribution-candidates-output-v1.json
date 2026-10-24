@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://discourselens.com/schemas/quote-attribution-candidates-output-v1.json",
+  "title": "Quotation and Attribution Candidate Inventory Output v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "skill_run_id",
+    "finding_ids",
+    "evidence_ids",
+    "coverage_id",
+    "population_count",
+    "candidate_count",
+    "attribution_candidate_count",
+    "unmatched_marker_count",
+    "ambiguous_marker_count",
+    "candidates"
+  ],
+  "properties": {
+    "skill_run_id": {"type": "string"},
+    "finding_ids": {"type": "array", "items": {"type": "string"}},
+    "evidence_ids": {"type": "array", "items": {"type": "string"}},
+    "coverage_id": {"type": "string"},
+    "population_count": {"type": "integer", "minimum": 0},
+    "candidate_count": {"type": "integer", "minimum": 0},
+    "attribution_candidate_count": {"type": "integer", "minimum": 0},
+    "unmatched_marker_count": {"type": "integer", "minimum": 0},
+    "ambiguous_marker_count": {"type": "integer", "minimum": 0},
+    "candidates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "candidate_id",
+          "revision_id",
+          "quote_start",
+          "quote_end",
+          "opening_marker",
+          "closing_marker",
+          "quote_evidence_id",
+          "context_evidence_id",
+          "attribution_cues",
+          "attribution_cue_languages",
+          "attribution_cue_evidence_ids"
+        ],
+        "properties": {
+          "candidate_id": {"type": "string", "pattern": "^quote-[0-9a-f]{24}$"},
+          "revision_id": {"type": "string"},
+          "quote_start": {"type": "integer", "minimum": 0},
+          "quote_end": {"type": "integer", "minimum": 1},
+          "opening_marker": {"enum": ["\"", "“", "„", "«", "‹"]},
+          "closing_marker": {"enum": ["\"", "”", "“", "»", "›"]},
+          "quote_evidence_id": {"type": "string"},
+          "context_evidence_id": {"type": "string"},
+          "attribution_cues": {"type": "array", "items": {"type": "string"}},
+          "attribution_cue_languages": {
+            "type": "array",
+            "items": {"enum": ["en", "es"]}
+          },
+          "attribution_cue_evidence_ids": {
+            "type": "array",
+            "items": {"type": "string"}
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://discourselens.com/schemas/scope-question-hybrid-candidates-input-v1.json",
+  "title": "Hybrid scope question candidate retrieval input",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "framework_id",
+    "research_question",
+    "scope_snapshot_id",
+    "embedding_preset_name",
+    "embedding_artifact_ids"
+  ],
+  "properties": {
+    "framework_id": { "type": "string", "minLength": 1, "pattern": "\\S" },
+    "research_question": { "type": "string", "minLength": 1, "pattern": "\\S" },
+    "scope_snapshot_id": { "type": "string", "minLength": 1, "pattern": "\\S" },
+    "limit": { "type": "integer", "minimum": 1, "maximum": 12, "default": 12 },
+    "embedding_preset_name": { "type": "string", "minLength": 1, "pattern": "\\S" },
+    "embedding_artifact_ids": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 100,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1, "pattern": "\\S" }
+    }
+  }
+}

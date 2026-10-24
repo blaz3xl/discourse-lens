@@ -1,0 +1,21 @@
+{
+  "schema_version": "retrieval-judgments-v1",
+  "unit_kind": "CHUNK",
+  "chunker_provenance": {
+    "name": "synthetic-smoke-fixed-chunker",
+    "version": "1",
+    "configuration": "fixed-hand-authored-unit-ids"
+  },
+  "queries": [
+    {
+      "query_id": "q1",
+      "judgments": [
+        {"unit_id": "unit-a", "grade": 3},
+        {"unit_id": "unit-b", "grade": 1},
+        {"unit_id": "unit-c", "grade": 0}
+      ]
+    },
+    {"query_id": "q2", "judgments": []},
+    {"query_id": "q3", "judgments": [{"unit_id": "unit-z", "grade": 2}]}
+  ]
+}

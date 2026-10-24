@@ -1,0 +1,45 @@
+{
+  "candidate": "sqlite-vec",
+  "dataset": {
+    "append_count": 10000,
+    "chunks": 100000,
+    "dimensions": 768
+  },
+  "lifecycle_passed": true,
+  "note": "Deterministic random vectors measure index mechanics, not semantic retrieval quality.",
+  "sqlite-vec": {
+    "append_count": 10000,
+    "append_query_top1": "append-00000000",
+    "append_seconds": 3.156723,
+    "checks": {
+      "append_query_finds_new_vector": true,
+      "copied_reopen_preserves_top10": true,
+      "delete_removes_appended_rows": true,
+      "rebuild_keeps_first_base_hit": true,
+      "rebuild_preserves_base_top10": true
+    },
+    "copied_bytes": 314757120,
+    "copy_seconds": 0.207441,
+    "delete_seconds": 6.067323,
+    "deleted_ids_absent_from_query": true,
+    "passed": true,
+    "rebuild_query_top10": [
+      "base-00000000",
+      "base-00088405",
+      "base-00026370",
+      "base-00059186",
+      "base-00088660",
+      "base-00016226",
+      "base-00015479",
+      "base-00099438",
+      "base-00037044",
+      "base-00036970"
+    ],
+    "rebuild_seconds": 38.458651,
+    "rebuilt_bytes": 314757120,
+    "reopen_query_seconds": 0.417422,
+    "reopen_seconds": 0.00056,
+    "reopened_rows": 100000,
+    "rows_after_delete": 100000
+  }
+}

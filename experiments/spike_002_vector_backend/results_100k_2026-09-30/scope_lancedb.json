@@ -1,0 +1,15 @@
+{
+  "fixture": "B is intentionally nearer than every A vector",
+  "nearest_unfiltered_scope": "B",
+  "note": "Random vectors and this adversarial fixture assess mechanics only, not semantic quality.",
+  "passed": true,
+  "scope_filter_checks": {
+    "lancedb": {
+      "passed": true,
+      "returned_scopes": [
+        "A"
+      ],
+      "strategy": "LanceDB metadata predicate with prefilter=True"
+    }
+  }
+}
