@@ -44,6 +44,7 @@ _MAX_ENDPOINT_PATH_DECODING_PASSES = 8
 _OPENAI_REASONING_EFFORT_WIRE_VALUES = frozenset(
     {"none", "minimal", "low", "medium", "high", "xhigh", "max"}
 )
+_OPENAI_RESPONSES_API_MODELS = frozenset({"gpt-6-luna"})
 _ANTHROPIC_REASONING_EFFORT_WIRE_VALUES = frozenset({"low", "medium", "high", "xhigh", "max"})
 _GEMINI_REASONING_EFFORT_WIRE_VALUES = frozenset({"minimal", "low", "medium", "high"})
 _WEEKDAYS_SHORT = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
@@ -385,6 +386,57 @@ def _iter_openai_stream_text(response: Any) -> Iterator[str]:
         finished = finished or finish_reason is not None
     if not received_done:
         raise ModelResponseError("provider stream ended without a completion marker")
+
+
+def _iter_openai_responses_stream_text(response: Any) -> Iterator[str]:
+    completed = False
+    emitted_text = False
+    for event_data in _iter_server_sent_data(response):
+        if event_data.strip() == "[DONE]":
+            if not completed:
+                raise ModelResponseError("OpenAI Responses stream ended before completion")
+            break
+        try:
+            payload = _parse_provider_json(event_data)
+        except (ValueError, RecursionError):
+            raise ModelResponseError("OpenAI Responses stream contains malformed JSON") from None
+        if not isinstance(payload, dict):
+            raise ModelResponseError("OpenAI Responses stream event must be a JSON object")
+        event_type = payload.get("type")
+        if not isinstance(event_type, str) or not event_type:
+            raise ModelResponseError("OpenAI Responses stream event lacks a type")
+        if event_type in {"error", "response.failed"}:
+            raise ModelResponseError("OpenAI Responses stream failed") from None
+        if event_type == "response.incomplete":
+            raise ModelResponseError("OpenAI Responses stream ended with an incomplete response")
+        if event_type == "response.refusal.delta":
+            raise ModelResponseError("OpenAI Responses API refused the request") from None
+        if event_type == "response.output_text.delta":
+            if completed:
+                raise ModelResponseError("OpenAI Responses stream emitted text after completion")
+            delta = payload.get("delta")
+            if not isinstance(delta, str):
+                raise ModelResponseError("OpenAI Responses stream text delta is malformed")
+            if delta:
+                emitted_text = True
+                yield delta
+            continue
+        if event_type != "response.completed":
+            continue
+        if completed:
+            raise ModelResponseError("OpenAI Responses stream completed more than once")
+        response_payload = payload.get("response")
+        if not isinstance(response_payload, dict) or response_payload.get("status") != "completed":
+            raise ModelResponseError("OpenAI Responses stream lacks a completed response")
+        final_text = _openai_responses_output_text(response_payload)
+        if not emitted_text:
+            if not isinstance(final_text, str) or not final_text:
+                raise ModelResponseError("OpenAI Responses stream contains no text output")
+            emitted_text = True
+            yield final_text
+        completed = True
+    if not completed:
+        raise ModelResponseError("OpenAI Responses stream ended without a completion event")
 
 
 def _iter_anthropic_stream_text(response: Any) -> Iterator[str]:
@@ -894,14 +946,170 @@ class OpenAICompatibleProvider:
 
 
 @dataclass(frozen=True)
-class OpenAIProvider:
-    """Direct OpenAI Chat Completions transport with an official default endpoint.
+class OpenAIResponsesProvider:
+    """OpenAI Responses API transport for models whose reasoning API is Responses-first."""
 
-    This deliberately shares the well-defined Chat Completions wire contract with
-    the compatible adapter, while removing the surprising requirement for an
-    OpenAI researcher to repeat the standard endpoint in every credential.  It
-    exposes a documented reasoning-effort wire mapping, but requires an exact
-    model capability profile before enabling any reasoning level.
+    endpoint: str
+    credential_reference: str
+    secret_store: SecretStore = field(repr=False)
+    provider_id: str = "openai"
+    capabilities_by_model: dict[str, ModelCapabilities] = field(default_factory=dict)
+    timeout_seconds: float = 60.0
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "endpoint", _validate_endpoint(self.endpoint))
+        if not self.credential_reference:
+            raise ModelProviderError("provider requires a credential reference")
+        _validate_provider_timeout("OpenAI Responses", self.timeout_seconds)
+
+    def capabilities(self, model: str) -> ModelCapabilities:
+        return self.capabilities_by_model.get(
+            model,
+            ModelCapabilities(
+                system_prompt=True,
+                structured_output=True,
+                streaming=True,
+                reasoning_efforts=tuple(_OPENAI_REASONING_EFFORT_WIRE_VALUES),
+            ),
+        )
+
+    def _generation_http_request(self, request: GenerationRequest, *, streaming: bool) -> Request:
+        if not request.prompt:
+            raise ModelProviderError("generation prompt must not be empty")
+        capabilities = self.capabilities(request.model)
+        if request.image is not None and not capabilities.vision:
+            raise ModelProviderError("OpenAI Responses image input requires vision support")
+        if streaming and not capabilities.streaming:
+            raise ModelProviderError("provider does not declare streaming support for this model")
+        _require_supported_system_prompt(request, capabilities)
+        _require_supported_structured_output(request, capabilities)
+        _require_supported_reasoning(
+            request,
+            capabilities,
+            native_effort_values=_OPENAI_REASONING_EFFORT_WIRE_VALUES,
+        )
+        _reject_unsupported_reasoning_budget(request, "OpenAI Responses API adapter")
+        if request.reasoning_mode:
+            raise ModelProviderError(
+                "OpenAI Responses API adapter does not declare reasoning-mode support for this model"
+            )
+        parameters = _require_supported_parameters(request, capabilities)
+        parameter_mapping = {
+            "temperature": "temperature",
+            "top_p": "top_p",
+            "max_tokens": "max_output_tokens",
+            "max_output_tokens": "max_output_tokens",
+        }
+        payload: dict[str, object] = {
+            "model": request.model,
+            "input": request.prompt,
+            "store": False,
+        }
+        if request.system_prompt is not None:
+            payload["instructions"] = request.system_prompt
+        if request.reasoning is not None:
+            payload["reasoning"] = {"effort": request.reasoning}
+        for name, value in parameters.items():
+            wire_name = parameter_mapping.get(name)
+            if wire_name is None:
+                raise ModelProviderError(
+                    f"OpenAI Responses API adapter does not map generation parameter {name!r}"
+                )
+            payload[wire_name] = value
+        if request.image is not None:
+            image_url = (
+                f"data:{request.image.mime_type};base64,"
+                f"{base64.b64encode(request.image.data).decode('ascii')}"
+            )
+            payload["input"] = [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "input_text", "text": request.prompt},
+                        {"type": "input_image", "image_url": image_url},
+                    ],
+                }
+            ]
+        if streaming:
+            payload["stream"] = True
+        if request.response_schema is not None:
+            payload["text"] = {
+                "format": {
+                    "type": "json_schema",
+                    "name": request.response_schema_name,
+                    "strict": True,
+                    "schema": request.response_schema,
+                }
+            }
+        body = _encode_provider_json(payload)
+        if request.image is not None and len(body) > MAX_OPENAI_CHAT_IMAGE_REQUEST_BYTES:
+            raise ModelProviderError(
+                "OpenAI Responses image request exceeds the configured byte limit"
+            )
+        headers = {
+            "Content-Type": "application/json",
+            "Accept": "text/event-stream" if streaming else "application/json",
+            "Authorization": (
+                f"Bearer {_resolve_provider_credential(self.secret_store, self.credential_reference)}"
+            ),
+        }
+        return Request(
+            f"{self.endpoint}/responses",
+            body,
+            headers=headers,
+            method="POST",
+        )
+
+    def generate(self, request: GenerationRequest) -> GenerationResponse:
+        http_request = self._generation_http_request(request, streaming=False)
+        try:
+            with _open_provider_request(http_request, timeout=self.timeout_seconds) as response:
+                payload = _parse_provider_json(
+                    _read_bounded_provider_response(response).decode("utf-8")
+                )
+        except HTTPError as exc:
+            _raise_provider_http_error(exc, self.provider_id, "generation")
+        except URLError:
+            raise ModelProviderError("provider endpoint is unavailable") from None
+        except (OSError, ValueError, RecursionError):
+            raise ModelProviderError("provider response could not be read") from None
+        if not isinstance(payload, dict):
+            raise ModelResponseError("OpenAI Responses API response must be a JSON object")
+        response_status = payload.get("status")
+        if response_status == "incomplete":
+            raise ModelResponseError("OpenAI Responses API returned an incomplete response")
+        if response_status != "completed":
+            raise ModelResponseError("OpenAI Responses API response is not complete")
+        text = _openai_responses_output_text(payload)
+        if not isinstance(text, str) or not text:
+            raise ModelResponseError("OpenAI Responses API response contains no text output")
+        return GenerationResponse(
+            text,
+            self.provider_id,
+            request.model,
+            _openai_responses_usage(payload.get("usage")),
+        )
+
+    def stream_generate(self, request: GenerationRequest) -> Iterator[str]:
+        http_request = self._generation_http_request(request, streaming=True)
+        try:
+            with _open_provider_request(http_request, timeout=self.timeout_seconds) as response:
+                yield from _iter_openai_responses_stream_text(response)
+        except HTTPError as exc:
+            _raise_provider_http_error(exc, self.provider_id, "generation")
+        except URLError:
+            raise ModelProviderError("provider endpoint is unavailable") from None
+        except OSError:
+            raise ModelProviderError("provider streaming response could not be read") from None
+
+
+@dataclass(frozen=True)
+class OpenAIProvider:
+    """Direct OpenAI transport with model-specific Chat Completions and Responses routing.
+
+    The Responses API is used for GPT-6 Luna so its documented reasoning effort
+    values are sent using the Responses API shape. Other models keep the existing
+    Chat Completions mapping. Both paths use the configured credential and endpoint.
     """
 
     credential_reference: str
@@ -924,7 +1132,16 @@ class OpenAIProvider:
     def _default_capabilities() -> ModelCapabilities:
         return _openai_chat_capabilities()
 
-    def generate(self, request: GenerationRequest) -> GenerationResponse:
+    def _provider_for_model(self, model: str):
+        if model in _OPENAI_RESPONSES_API_MODELS:
+            return OpenAIResponsesProvider(
+                endpoint=self.endpoint,
+                credential_reference=self.credential_reference,
+                secret_store=self.secret_store,
+                provider_id=self.provider_id,
+                capabilities_by_model=self.capabilities_by_model,
+                timeout_seconds=self.timeout_seconds,
+            )
         return OpenAICompatibleProvider(
             endpoint=self.endpoint,
             credential_reference=self.credential_reference,
@@ -933,18 +1150,13 @@ class OpenAIProvider:
             capabilities_by_model=self.capabilities_by_model,
             timeout_seconds=self.timeout_seconds,
             native_reasoning_mapping=True,
-        ).generate(request)
+        )
+
+    def generate(self, request: GenerationRequest) -> GenerationResponse:
+        return self._provider_for_model(request.model).generate(request)
 
     def stream_generate(self, request: GenerationRequest) -> Iterator[str]:
-        yield from OpenAICompatibleProvider(
-            endpoint=self.endpoint,
-            credential_reference=self.credential_reference,
-            secret_store=self.secret_store,
-            provider_id=self.provider_id,
-            capabilities_by_model=self.capabilities_by_model,
-            timeout_seconds=self.timeout_seconds,
-            native_reasoning_mapping=True,
-        ).stream_generate(request)
+        yield from self._provider_for_model(request.model).stream_generate(request)
 
 
 @dataclass(frozen=True)
@@ -2949,6 +3161,50 @@ def _openai_usage(payload: object) -> TokenUsage | None:
         reasoning_tokens = None
     return TokenUsage(
         input_tokens=_integer(payload, "prompt_tokens"),
+        output_tokens=output_tokens,
+        reasoning_tokens=reasoning_tokens,
+    )
+
+
+def _openai_responses_output_text(payload: object) -> str:
+    if not isinstance(payload, dict):
+        raise ModelResponseError("OpenAI Responses API response must be an object")
+    output = payload.get("output")
+    if not isinstance(output, list):
+        raise ModelResponseError("OpenAI Responses API response lacks output items")
+    text_parts: list[str] = []
+    for item in output:
+        if not isinstance(item, dict):
+            raise ModelResponseError("OpenAI Responses API output item is malformed")
+        content = item.get("content")
+        if not isinstance(content, list):
+            continue
+        for block in content:
+            if not isinstance(block, dict):
+                raise ModelResponseError("OpenAI Responses API content block is malformed")
+            block_type = block.get("type")
+            if block_type == "refusal":
+                raise ModelResponseError("OpenAI Responses API refused the request")
+            if block_type == "output_text":
+                text = block.get("text")
+                if not isinstance(text, str):
+                    raise ModelResponseError("OpenAI Responses API text output is malformed")
+                text_parts.append(text)
+    return "".join(text_parts)
+
+
+def _openai_responses_usage(payload: object) -> TokenUsage | None:
+    if not isinstance(payload, dict):
+        return None
+    details = payload.get("output_tokens_details")
+    output_tokens = _integer(payload, "output_tokens")
+    reasoning_tokens = (
+        _integer(details, "reasoning_tokens") if isinstance(details, dict) else None
+    )
+    if output_tokens is None or reasoning_tokens is not None and reasoning_tokens > output_tokens:
+        reasoning_tokens = None
+    return TokenUsage(
+        input_tokens=_integer(payload, "input_tokens"),
         output_tokens=output_tokens,
         reasoning_tokens=reasoning_tokens,
     )

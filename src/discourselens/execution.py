@@ -489,6 +489,7 @@ def _require_image_capability(
     ):
         raise ModelProviderError(
             "image input is supported only by Gemini, OpenAI Chat Completions, "
+            "OpenAI Responses, "
             "and Anthropic Messages generation"
         )
     if profile is None or profile.capabilities.vision is not True:
@@ -530,8 +531,8 @@ def _apply_project_capabilities(project, provider_id, model, provider, profile=N
         # mappings. The exact-model profile, not the transport, opts in to use.
         adapter_capabilities = replace(adapter_capabilities, structured_output=True)
     if profile and provider_id == "openai":
-        # The native OpenAI adapter implements Chat Completions reasoning_effort;
-        # the exact-model declaration determines which values this model permits.
+        # The native OpenAI adapter maps reasoning for both Chat Completions and
+        # Responses; the exact-model declaration determines which values are usable.
         adapter_capabilities = replace(
             adapter_capabilities,
             vision=True,
