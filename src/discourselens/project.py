@@ -2125,6 +2125,23 @@ class Project:
         self.db.commit()
         return project_id
 
+    def rename_research_project(self, project_id: str, name: str) -> dict[str, str]:
+        """Rename one private research project without moving its contents."""
+        self._require_writable()
+        clean_name = name.strip() if isinstance(name, str) else ""
+        if not clean_name or len(clean_name) > 120:
+            raise DocumentError("project name must contain 1..120 characters")
+        if not isinstance(project_id, str) or not project_id.strip():
+            raise DocumentError("research project ID is invalid")
+        cursor = self.db.execute(
+            "UPDATE research_projects SET name=?,updated_at=? WHERE id=?",
+            (clean_name, now(), project_id),
+        )
+        if cursor.rowcount != 1:
+            raise DocumentError("unknown research project")
+        self.db.commit()
+        return {"id": project_id, "name": clean_name}
+
     def delete_research_project(self, project_id: str) -> dict[str, object]:
         """Remove a research project while preserving its sources and conversations."""
         self._require_writable()
