@@ -1584,9 +1584,13 @@ def create_app(
     registration_enabled = registration_value in {"1", "true", "yes"}
     if not 1 <= max_upload_bytes <= MAX_UPLOAD_BYTES:
         raise ValueError("max_upload_bytes must be between 1 and 100 MiB")
-    public_origin_value = os.environ.get("DISCOURSELENS_WEB_PUBLIC_ORIGIN", "").strip()
-    public_origin: str | None = None
-    if public_origin_value:
+    public_origin_values = [
+        value.strip()
+        for value in os.environ.get("DISCOURSELENS_WEB_PUBLIC_ORIGIN", "").split(",")
+        if value.strip()
+    ]
+    normalized_public_origins: list[str] = []
+    for public_origin_value in public_origin_values:
         parsed_public_origin = urlsplit(public_origin_value)
         if (
             parsed_public_origin.scheme != "https"
@@ -1597,8 +1601,15 @@ def create_app(
             or parsed_public_origin.username
             or parsed_public_origin.password
         ):
-            raise RuntimeError("DISCOURSELENS_WEB_PUBLIC_ORIGIN must be an HTTPS origin")
-        public_origin = f"https://{parsed_public_origin.netloc}"
+            raise RuntimeError(
+                "DISCOURSELENS_WEB_PUBLIC_ORIGIN must contain comma-separated HTTPS origins"
+            )
+        normalized = f"https://{parsed_public_origin.netloc}"
+        if normalized.casefold() not in {
+            origin.casefold() for origin in normalized_public_origins
+        }:
+            normalized_public_origins.append(normalized)
+    public_origin: tuple[str, ...] | None = tuple(normalized_public_origins) or None
     cookie_secure_value = os.environ.get(
         "DISCOURSELENS_WEB_COOKIE_SECURE", "true" if public_origin else "false"
     ).strip().casefold()
@@ -3243,23 +3254,32 @@ def _local_user_project_path(root: Path, workspace_id: str) -> Path:
     return project_root
 
 
-def _ensure_same_origin(request: Request, public_origin: str | None) -> None:
+def _ensure_same_origin(
+    request: Request, public_origin: str | tuple[str, ...] | None
+) -> None:
     """Reject cross-origin requests that could use a browser session cookie."""
     origin = request.headers.get("origin", "")
     try:
         parsed_origin = urlsplit(origin)
-        expected_scheme = "https" if public_origin else request.url.scheme
-        expected_host = (
-            urlsplit(public_origin).netloc
-            if public_origin
-            else request.headers.get("host", "")
-        )
+        if public_origin:
+            allowed_origins = (
+                (public_origin,) if isinstance(public_origin, str) else public_origin
+            )
+            origin_matches = any(
+                parsed_origin.scheme == "https"
+                and parsed_origin.netloc.casefold()
+                == urlsplit(allowed_origin).netloc.casefold()
+                for allowed_origin in allowed_origins
+            )
+        else:
+            origin_matches = (
+                parsed_origin.scheme == request.url.scheme
+                and parsed_origin.netloc.casefold()
+                == request.headers.get("host", "").casefold()
+            )
     except ValueError:
         raise HTTPException(status_code=403, detail="Origen de solicitud no válido") from None
-    if (
-        parsed_origin.scheme != expected_scheme
-        or parsed_origin.netloc.casefold() != expected_host.casefold()
-    ):
+    if not origin_matches:
         raise HTTPException(status_code=403, detail="Origen de solicitud no válido")
 
 
