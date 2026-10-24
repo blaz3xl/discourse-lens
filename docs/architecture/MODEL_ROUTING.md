@@ -37,7 +37,12 @@ Projects may store an exact `(provider_id, model)` capability profile with
 `models set-capabilities` and inspect it with `models list-capabilities`.
 Execution intersects the project declaration with the adapter's transport
 capabilities: a profile can restrict an adapter but cannot invent an unsupported
-wire mapping. Profiles default to `UNASSESSED`; `TESTED` or `VALIDATED` is
+wire mapping. A documented built-in profile is used when the project has no
+profile for an exact model ID covered by the application's model metadata
+registry; the project profile takes precedence. The current OpenAI entry is
+`gpt-6-luna`, based on [OpenAI's model documentation](https://developers.openai.com/api/docs/models/gpt-6-luna).
+Unknown IDs still require an explicit profile.
+Profiles default to `UNASSESSED`; `TESTED` or `VALIDATED` is
 researcher-supplied assurance, not an automatic DiscourseLens certification.
 The effective intersection and its provenance are snapshotted per execution.
 The `structured_output` flag is an exact-model opt-in: it enables a native JSON

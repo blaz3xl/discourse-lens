@@ -358,7 +358,7 @@ def snapshot_model_preset(project, preset_name: str) -> dict[str, object]:
     credential_reference = credential["secret_reference"]
     if not isinstance(credential_reference, str) or not credential_reference:
         raise ModelProviderError("provider credential has an invalid secret reference")
-    profile = project.model_capability_profile(preset["provider_id"], preset["model"])
+    profile = _model_capability_profile(project, preset["provider_id"], preset["model"])
     capability_data = None
     if profile:
         capability_data = {
@@ -396,7 +396,7 @@ def _snapshot_to_capability_profile(
     provider_id: str, model: str, snapshot: object
 ) -> ModelCapabilityProfile | None:
     if snapshot is None:
-        return None
+        return _documented_model_capability_profile(provider_id, model)
     if not isinstance(snapshot, dict):
         raise ModelProviderError("analysis run capability profile snapshot is invalid")
     capabilities_data = snapshot.get("capabilities")
@@ -445,6 +445,35 @@ def _intersect_capabilities(
         generation_parameters=tuple(
             item for item in adapter.generation_parameters if item in declared.generation_parameters
         ),
+    )
+
+
+def _documented_model_capability_profile(
+    provider_id: str, model: str
+) -> ModelCapabilityProfile | None:
+    """Return a documented profile for exact model IDs with published API metadata."""
+    if provider_id == "openai" and model == "gpt-6-luna":
+        return ModelCapabilityProfile(
+            provider_id=provider_id,
+            model=model,
+            capabilities=ModelCapabilities(
+                vision=True,
+                structured_output=True,
+                streaming=True,
+                reasoning_efforts=("none", "low", "medium", "high", "xhigh", "max"),
+            ),
+            assurance="UNASSESSED",
+            source_reference="https://developers.openai.com/api/docs/models/gpt-6-luna",
+        )
+    return None
+
+
+def _model_capability_profile(
+    project, provider_id: str, model: str
+) -> ModelCapabilityProfile | None:
+    """Prefer a project's exact declaration, then fall back to reviewed model metadata."""
+    return project.model_capability_profile(provider_id, model) or (
+        _documented_model_capability_profile(provider_id, model)
     )
 
 
@@ -815,7 +844,7 @@ def preview_model_preset_request(
         provider = _create_provider(
             project, provider_factory, endpoint, auth_reference, preset["provider_id"]
         )
-        profile = project.model_capability_profile(preset["provider_id"], preset["model"])
+        profile = _model_capability_profile(project, preset["provider_id"], preset["model"])
         _, capability_set, _ = _apply_project_capabilities(
             project, preset["provider_id"], preset["model"], provider, profile
         )
