@@ -124,6 +124,90 @@ def _chat_debug(event: str, **fields: object) -> None:
     print(f"DISCOURSELENS_DEBUG {serialized}", file=sys.stderr, flush=True)
 
 
+def _chat_prompt_tool_results(tool_results: list[dict[str, object]]) -> str:
+    """Keep the newest tool output in the planner context within its size limit."""
+    selected: list[dict[str, object]] = []
+    for result in reversed(tool_results):
+        candidate = [result, *selected]
+        serialized = json.dumps(candidate, ensure_ascii=False, separators=(",", ":"))
+        if len(serialized) <= _CHAT_AGENT_RESULT_CHARS:
+            selected = candidate
+            continue
+        if not selected:
+            latest = dict(result)
+            result_text = latest.get("result")
+            if isinstance(result_text, str):
+                latest["result"] = ""
+                overhead = len(
+                    json.dumps([latest], ensure_ascii=False, separators=(",", ":"))
+                )
+                available = max(0, _CHAT_AGENT_RESULT_CHARS - overhead)
+                if len(result_text) > available:
+                    marker = "\n[resultado recortado para ajustar el contexto]"
+                    latest["result"] = (
+                        result_text[: available - len(marker)] + marker
+                        if available > len(marker)
+                        else result_text[:available]
+                    )
+                else:
+                    latest["result"] = result_text
+            selected = [latest]
+    return json.dumps(selected, ensure_ascii=False, separators=(",", ":"))
+
+
+def _chat_prompt_tool_catalog(catalog: dict[str, dict[str, object]]) -> str:
+    """Keep the planner's tool reference compact while preserving argument shapes."""
+    schema_keys = frozenset(
+        {
+            "$defs",
+            "$ref",
+            "additionalProperties",
+            "allOf",
+            "anyOf",
+            "const",
+            "definitions",
+            "enum",
+            "format",
+            "items",
+            "maxItems",
+            "maxLength",
+            "maximum",
+            "minItems",
+            "minLength",
+            "minimum",
+            "oneOf",
+            "pattern",
+            "properties",
+            "required",
+            "type",
+        }
+    )
+
+    def compact_schema(value: object) -> object:
+        if isinstance(value, dict):
+            return {
+                key: compact_schema(item)
+                for key, item in value.items()
+                if key in schema_keys
+            }
+        if isinstance(value, list):
+            return [compact_schema(item) for item in value]
+        return value
+
+    compact_tools: list[dict[str, object]] = []
+    for tool in catalog.values():
+        description = tool.get("description")
+        short_description = description.strip()[:240] if isinstance(description, str) else ""
+        compact_tools.append(
+            {
+                "name": tool.get("name", ""),
+                "description": short_description,
+                "arguments": compact_schema(tool.get("arguments", {})),
+            }
+        )
+    return json.dumps(compact_tools, ensure_ascii=False, separators=(",", ":"))
+
+
 def _decode_chat_agent_plan(response: str, *, structured: bool) -> object:
     """Decode a model plan and normalize the structured OpenAI envelope."""
     plan = json.loads(response)
@@ -418,7 +502,7 @@ def _run_chat_agent(
 
     _record_chat_activity("El asistente está valorando la pregunta y los métodos disponibles.")
     mcp_server, catalog = _agent_mcp_catalog()
-    tool_catalog = json.dumps(list(catalog.values()), ensure_ascii=False, separators=(",", ":"))
+    tool_catalog = _chat_prompt_tool_catalog(catalog)
     method_catalog = json.dumps(
         {
             method_id: {
@@ -515,7 +599,7 @@ def _run_chat_agent(
             f"REGISTERED MCP TOOL CATALOG (the same tool registry exposed to connectors):\n{tool_catalog}\n\n"
             f"RECENT CONVERSATION:\n{json.dumps(conversation_context[-12:], ensure_ascii=False)}\n\n"
             f"CURRENT RESEARCHER MESSAGE:\n{question[:8000]}\n\n"
-            f"RESULTS OF TOOLS ALREADY CALLED THIS TURN:\n{json.dumps(tool_results, ensure_ascii=False)[:_CHAT_AGENT_RESULT_CHARS]}"
+            f"RESULTS OF TOOLS ALREADY CALLED THIS TURN:\n{_chat_prompt_tool_results(tool_results)}"
         )
         try:
             generation_options: dict[str, object] = {
@@ -654,7 +738,7 @@ def _run_chat_agent(
                 f"CURRENT RESEARCHER MESSAGE:\n{question[:8000]}\n\n"
                 f"RECENT CONVERSATION:\n{json.dumps(conversation_context[-12:], ensure_ascii=False)}\n\n"
                 f"RESULTS OF TOOLS ALREADY CALLED THIS TURN:\n"
-                f"{json.dumps(tool_results, ensure_ascii=False)[:_CHAT_AGENT_RESULT_CHARS]}"
+                f"{_chat_prompt_tool_results(tool_results)}"
             )
             finalization_options = dict(generation_options)
             finalization_options["system_prompt"] = (
