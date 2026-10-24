@@ -79,6 +79,7 @@ MAX_CODEBOOK_PAGE_SIZE = 100
 MAX_RESEARCH_MEMO_TITLE_CHARS = 512
 MAX_RESEARCH_MEMO_TEXT_CHARS = 4_000
 _DEFAULT_CHAT_MODEL_PRESET_KEY = "default_chat_model_preset"
+_CHAT_REASONING_PREFERENCES_KEY = "chat_reasoning_preferences"
 _SUPPORTS_DIR_FD_OPEN = os.open in os.supports_dir_fd
 _SUPPORTS_DIR_FD_DIRECTORY_CREATION = (
     _SUPPORTS_DIR_FD_OPEN and os.mkdir in os.supports_dir_fd and os.stat in os.supports_dir_fd
@@ -5723,6 +5724,69 @@ class Project:
         )
         self.db.commit()
 
+    def _chat_reasoning_preferences(self) -> dict[str, str]:
+        setting = self.db.execute(
+            "SELECT value FROM project_meta WHERE key=?",
+            (_CHAT_REASONING_PREFERENCES_KEY,),
+        ).fetchone()
+        if setting is None:
+            return {}
+        try:
+            payload = json.loads(str(setting["value"]))
+        except (TypeError, ValueError):
+            return {}
+        if not isinstance(payload, dict):
+            return {}
+        return {
+            name: value
+            for name, value in payload.items()
+            if isinstance(name, str) and isinstance(value, str)
+        }
+
+    def chat_reasoning_preference(self, preset_name: str) -> str | None:
+        """Return the saved chat reasoning override for one model preset."""
+        if not isinstance(preset_name, str) or not preset_name.strip():
+            return None
+        return self._chat_reasoning_preferences().get(preset_name)
+
+    def set_chat_reasoning_preference(
+        self, preset_name: str, reasoning: str | None
+    ) -> None:
+        """Save or clear a per-preset chat reasoning override in project metadata."""
+        self._require_writable()
+        if not isinstance(preset_name, str) or not preset_name.strip():
+            raise DocumentError("model preset name is invalid")
+        self.model_preset(preset_name)
+        if reasoning is not None and (
+            not isinstance(reasoning, str) or not reasoning.strip() or len(reasoning) > 64
+        ):
+            raise DocumentError("chat reasoning preference is invalid")
+        preferences = self._chat_reasoning_preferences()
+        if reasoning is None:
+            preferences.pop(preset_name, None)
+        else:
+            preferences[preset_name] = reasoning
+        if preferences:
+            self.db.execute(
+                "INSERT INTO project_meta(key,value) VALUES(?,?) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                (
+                    _CHAT_REASONING_PREFERENCES_KEY,
+                    json.dumps(
+                        preferences,
+                        ensure_ascii=False,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    ),
+                ),
+            )
+        else:
+            self.db.execute(
+                "DELETE FROM project_meta WHERE key=?",
+                (_CHAT_REASONING_PREFERENCES_KEY,),
+            )
+        self.db.commit()
+
     def _repair_default_chat_model_preset(self) -> None:
         """Choose another available chat preset if the saved default was removed."""
         from .provider_catalog import supports_generation
@@ -5758,6 +5822,27 @@ class Project:
         ).fetchone()
         if not row:
             raise DocumentError("unknown model preset")
+        preferences = self._chat_reasoning_preferences()
+        if preferences.pop(str(row["name"]), None) is not None:
+            if preferences:
+                self.db.execute(
+                    "INSERT INTO project_meta(key,value) VALUES(?,?) "
+                    "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                    (
+                        _CHAT_REASONING_PREFERENCES_KEY,
+                        json.dumps(
+                            preferences,
+                            ensure_ascii=False,
+                            sort_keys=True,
+                            separators=(",", ":"),
+                        ),
+                    ),
+                )
+            else:
+                self.db.execute(
+                    "DELETE FROM project_meta WHERE key=?",
+                    (_CHAT_REASONING_PREFERENCES_KEY,),
+                )
         self.db.execute("DELETE FROM model_presets WHERE id=?", (preset_id,))
         self._repair_default_chat_model_preset()
         self.db.commit()
