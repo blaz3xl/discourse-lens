@@ -439,6 +439,51 @@ def _iter_openai_responses_stream_text(response: Any) -> Iterator[str]:
         raise ModelResponseError("OpenAI Responses stream ended without a completion event")
 
 
+def _iter_openai_responses_structured_stream_text(response: Any) -> Iterator[str]:
+    """Yield the final schema-constrained text from the completed response."""
+    completed = False
+    for event_data in _iter_server_sent_data(response):
+        if event_data.strip() == "[DONE]":
+            if not completed:
+                raise ModelResponseError("OpenAI Responses stream ended before completion")
+            break
+        try:
+            payload = _parse_provider_json(event_data)
+        except (ValueError, RecursionError):
+            raise ModelResponseError("OpenAI Responses stream contains malformed JSON") from None
+        if not isinstance(payload, dict):
+            raise ModelResponseError("OpenAI Responses stream event must be a JSON object")
+        event_type = payload.get("type")
+        if not isinstance(event_type, str) or not event_type:
+            raise ModelResponseError("OpenAI Responses stream event lacks a type")
+        if event_type in {"error", "response.failed"}:
+            raise ModelResponseError("OpenAI Responses stream failed") from None
+        if event_type == "response.incomplete":
+            raise ModelResponseError("OpenAI Responses stream ended with an incomplete response")
+        if event_type == "response.refusal.delta":
+            raise ModelResponseError("OpenAI Responses API refused the request") from None
+        if event_type == "response.output_text.delta":
+            if completed:
+                raise ModelResponseError("OpenAI Responses stream emitted text after completion")
+            if not isinstance(payload.get("delta"), str):
+                raise ModelResponseError("OpenAI Responses stream text delta is malformed")
+            continue
+        if event_type != "response.completed":
+            continue
+        if completed:
+            raise ModelResponseError("OpenAI Responses stream completed more than once")
+        response_payload = payload.get("response")
+        if not isinstance(response_payload, dict) or response_payload.get("status") != "completed":
+            raise ModelResponseError("OpenAI Responses stream lacks a completed response")
+        final_text = _openai_responses_output_text(response_payload)
+        if not final_text:
+            raise ModelResponseError("OpenAI Responses stream contains no text output")
+        completed = True
+        yield final_text
+    if not completed:
+        raise ModelResponseError("OpenAI Responses stream ended without a completion event")
+
+
 def _iter_anthropic_stream_text(response: Any) -> Iterator[str]:
     """Yield only Messages text deltas and require the terminal message_stop."""
     message_started = False
@@ -1094,7 +1139,12 @@ class OpenAIResponsesProvider:
         http_request = self._generation_http_request(request, streaming=True)
         try:
             with _open_provider_request(http_request, timeout=self.timeout_seconds) as response:
-                yield from _iter_openai_responses_stream_text(response)
+                text_stream = (
+                    _iter_openai_responses_structured_stream_text(response)
+                    if request.response_schema is not None
+                    else _iter_openai_responses_stream_text(response)
+                )
+                yield from text_stream
         except HTTPError as exc:
             _raise_provider_http_error(exc, self.provider_id, "generation")
         except URLError:

@@ -42,7 +42,7 @@ DEFAULT_DOCX_EXPANDED_MAX_BYTES = 512 * 1024 * 1024
 DEFAULT_DOCX_ARCHIVE_MAX_ENTRIES = 10_000
 _WORD_NAMESPACE = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 BBOX_PROJECTION_VERSION = "pymupdf-char-range-v1"
-PDF_EXTRACTOR_IMPLEMENTATION_VERSION = "discourselens-pdf-import-v1"
+PDF_EXTRACTOR_IMPLEMENTATION_VERSION = "discourselens-pdf-import-v2"
 PDF_NORMALIZATION_VERSION = "pdf-text-preserve-v1"
 PDF_READING_ORDER_VERSION = "pymupdf-sorted-blocks-v1"
 PDF_PARAGRAPH_SEGMENTATION_VERSION = "pymupdf-block-v1"
@@ -611,13 +611,18 @@ def _extract_pdf_blocks(
     *,
     ocr_language: str | None,
     ocr_dpi: int,
+    full_ocr: bool = False,
 ) -> _PdfBlockExtraction:
     """Extract reading-order text blocks, optionally using local Tesseract OCR."""
     if ocr_language is None:
         text_dict = cast(Any, page.get_text("dict", sort=True))
         extracted = page.get_text("blocks", sort=True)
     else:
-        text_page = page.get_textpage_ocr(language=ocr_language, dpi=ocr_dpi, full=False)
+        text_page = page.get_textpage_ocr(
+            language=ocr_language,
+            dpi=ocr_dpi,
+            full=full_ocr,
+        )
         text_dict = cast(Any, page.get_text("dict", textpage=text_page, sort=True))
         extracted = page.get_text("blocks", textpage=text_page, sort=True)
     blocks = [
@@ -632,6 +637,40 @@ def _extract_pdf_blocks(
         blocks,
         reading_order_ambiguous=_has_horizontal_lane_ambiguity(text_dict),
     )
+
+
+def _pdf_blocks_have_suspicious_text_encoding(
+    blocks: list[tuple[str, tuple[float, float, float, float]]],
+) -> bool:
+    """Detect enough non-whitespace control characters to distrust native PDF text."""
+    text = "\n".join(content for content, _ in blocks)
+    non_whitespace = sum(not character.isspace() for character in text)
+    suspicious = sum(
+        (
+            (ord(character) < 0x20 and character not in "\n\r\t\f")
+            or 0x7F <= ord(character) <= 0x9F
+            or character == "\uFFFD"
+        )
+        for character in text
+    )
+    return suspicious >= 2 and suspicious * 100 >= non_whitespace
+
+
+def _pdf_blocks_text_quality(
+    blocks: list[tuple[str, tuple[float, float, float, float]]],
+) -> int:
+    """Score readable letters while strongly penalizing broken text encodings."""
+    text = "\n".join(content for content, _ in blocks)
+    alphanumeric = sum(character.isalnum() for character in text)
+    suspicious = sum(
+        (
+            (ord(character) < 0x20 and character not in "\n\r\t\f")
+            or 0x7F <= ord(character) <= 0x9F
+            or character == "\uFFFD"
+        )
+        for character in text
+    )
+    return alphanumeric - 12 * suspicious
 
 
 def _has_horizontal_lane_ambiguity(page_dict: dict[str, Any]) -> bool:
@@ -781,6 +820,7 @@ def _import_pdf_bytes(
         ] = []
         warnings: list[str] = []
         ocr_languages_used: set[str] = set()
+        ocr_full_page_replacements = 0
         extracted_text_chars = 0
         extracted_layout_blocks = 0
         for index in range(pdf.page_count):
@@ -790,23 +830,36 @@ def _import_pdf_bytes(
                     page, ocr_language=ocr_language, ocr_dpi=ocr_dpi
                 )
                 page_chars = sum(len(content.strip()) for content, _ in text_blocks)
-                if auto_ocr and ocr_language is None and page_chars < AUTO_OCR_MIN_PAGE_CHARS:
+                suspicious_encoding = _pdf_blocks_have_suspicious_text_encoding(text_blocks)
+                if auto_ocr and ocr_language is None and (
+                    page_chars < AUTO_OCR_MIN_PAGE_CHARS or suspicious_encoding
+                ):
                     _validate_pdf_ocr_workload(pdf, DEFAULT_OCR_DPI)
                     try:
-                        ocr_blocks = _extract_pdf_blocks(
-                            page,
-                            ocr_language=AUTO_OCR_LANGUAGES,
-                            ocr_dpi=DEFAULT_OCR_DPI,
-                        )
+                        if suspicious_encoding:
+                            ocr_blocks = _extract_pdf_blocks(
+                                page,
+                                ocr_language=AUTO_OCR_LANGUAGES,
+                                ocr_dpi=DEFAULT_OCR_DPI,
+                                full_ocr=True,
+                            )
+                        else:
+                            ocr_blocks = _extract_pdf_blocks(
+                                page,
+                                ocr_language=AUTO_OCR_LANGUAGES,
+                                ocr_dpi=DEFAULT_OCR_DPI,
+                            )
                     except Exception as exc:
                         warnings.append("AUTOMATIC_OCR_UNAVAILABLE")
                         _LOGGER.warning("automatic PDF OCR could not process a page", exc_info=exc)
                     else:
-                        ocr_chars = sum(len(content.strip()) for content, _ in ocr_blocks)
-                        if ocr_chars > page_chars:
+                        if _pdf_blocks_text_quality(ocr_blocks) > _pdf_blocks_text_quality(text_blocks):
                             text_blocks = ocr_blocks
                             ocr_languages_used.add(AUTO_OCR_LANGUAGES)
-                            warnings.append("AUTOMATIC_OCR_APPLIED")
+                            if "AUTOMATIC_OCR_APPLIED" not in warnings:
+                                warnings.append("AUTOMATIC_OCR_APPLIED")
+                            if suspicious_encoding:
+                                ocr_full_page_replacements += 1
                 if getattr(text_blocks, "reading_order_ambiguous", False):
                     warnings.append("AMBIGUOUS_READING_ORDER")
             except Exception as exc:
@@ -850,7 +903,11 @@ def _import_pdf_bytes(
         extractor = f"pymupdf@{fitz.VersionBind}{extractor_suffix}"
         used_ocr_languages = sorted(ocr_languages_used | ({ocr_language} if ocr_language else set()))
         if used_ocr_languages:
-            extractor += f"+tesseract-ocr[lang={'+'.join(used_ocr_languages)},dpi={ocr_dpi},full=false]"
+            full_ocr_mode = "page-replacement" if ocr_full_page_replacements else "false"
+            extractor += (
+                f"+tesseract-ocr[lang={'+'.join(used_ocr_languages)},"
+                f"dpi={ocr_dpi},full={full_ocr_mode}]"
+            )
         extraction_manifest_json = canonical_json(
             {
                 "manifest_version": "document-extraction-v1",
@@ -869,6 +926,7 @@ def _import_pdf_bytes(
                     "enabled": bool(used_ocr_languages),
                     "language": "+".join(used_ocr_languages) if used_ocr_languages else None,
                     "dpi": ocr_dpi if used_ocr_languages else None,
+                    "full_page_replacement_count": ocr_full_page_replacements,
                 },
             }
         )
