@@ -78,7 +78,7 @@ class _ParsedFixture:
         return [ParsedToken("Apples", "apple", "NOUN", None, None, "ROOT", 0, 6)]
 
 
-def test_mcp_registers_only_local_core_tools() -> None:
+def test_mcp_registers_expected_core_and_context_research_tools() -> None:
     tools = asyncio.run(server.list_tools())
     assert {tool.name for tool in tools} == {
         "import_document",
@@ -176,6 +176,11 @@ def test_mcp_registers_only_local_core_tools() -> None:
         "search_hybrid_with_preset",
         "search_vector",
         "get_page",
+        "read_document",
+        "get_linguistic_method",
+        "get_external_context",
+        "research_web_context",
+        "fetch_web_source",
         "get_paragraph",
         "get_finding_sources",
         "get_finding_reviews",

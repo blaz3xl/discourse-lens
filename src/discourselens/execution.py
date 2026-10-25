@@ -25,6 +25,7 @@ from .models import (
     QueryEmbeddingProvider,
     RerankingProvider,
     RerankResult,
+    TokenUsage,
 )
 from .network_policy import is_loopback_endpoint
 from .provider_catalog import (
@@ -1186,6 +1187,7 @@ def execute_model_preset(
         input_tokens=response.usage.input_tokens if response.usage else None,
         output_tokens=response.usage.output_tokens if response.usage else None,
         reasoning_tokens=response.usage.reasoning_tokens if response.usage else None,
+        provider_usage=getattr(response, "provider_usage", None),
         latency_ms=round((time.perf_counter() - started) * 1000),
         parameters=parameters,
         capabilities=capability_snapshot,
@@ -1292,6 +1294,14 @@ def execute_model_preset_stream(
             credential_alias,
             resolved.get("credential_reference_hash"),
         )
+        confirmed_usage: TokenUsage | None = None
+
+        def capture_usage(usage: TokenUsage) -> None:
+            nonlocal confirmed_usage
+            if not isinstance(usage, TokenUsage):
+                raise ModelResponseError("provider stream returned malformed token usage")
+            confirmed_usage = usage
+
         request = GenerationRequest(
             prompt,
             model,
@@ -1302,6 +1312,7 @@ def execute_model_preset_stream(
             system_prompt=system_prompt,
             response_schema_name=response_schema_name,
             response_schema=response_schema,
+            on_usage=capture_usage,
         )
         request_payload: dict[str, object] = {"user_prompt": prompt}
         if system_prompt is not None:
@@ -1345,6 +1356,9 @@ def execute_model_preset_stream(
                 request_hash,
                 response_hash,
                 error_type,
+                input_tokens=confirmed_usage.input_tokens if confirmed_usage else None,
+                output_tokens=confirmed_usage.output_tokens if confirmed_usage else None,
+                reasoning_tokens=confirmed_usage.reasoning_tokens if confirmed_usage else None,
                 latency_ms=round((time.perf_counter() - started) * 1000),
                 parameters=parameters,
                 capabilities=capability_snapshot,

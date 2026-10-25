@@ -49,6 +49,18 @@ can run against the local index. The index stays in the project volume, not in
 ChatGPT or Claude. Text and excerpts returned by MCP tools can still enter the
 connected model's context.
 
+Broad conversational analysis can read the complete canonical document when it
+fits the 100,000-character tool limit, retaining page references and explicit
+coverage. Longer documents require continuation. Contextual research uses the
+selected OpenAI preset's native web search, followed by bounded public-page
+fetches; other providers can use direct URL fetching but automatic source
+discovery currently requires OpenAI. Search receives public metadata queries.
+Fetched excerpts and URLs enter the conversation model's context and are saved
+as external evidence with retrieval time and content hash. They remain distinct
+from the uploaded document. Project offline mode blocks search and fetching.
+Public fetching rejects private addresses, credential-bearing URLs and private
+redirect destinations, and pins connections to the validated DNS addresses.
+
 Provider keys can be entered in the browser's **Proveedores de modelos** panel
 and are stored encrypted in the project database. Create model presets there
 under **Modelos y presets**, or through the CLI. The CLI can still use
@@ -252,6 +264,13 @@ the same project directory when their filesystem access and UID/GID permit it.
 Model-preset configuration is available in web and CLI. Exact-model capability
 review remains explicit; the web does not fetch provider model catalogs.
 Conversations use the selected saved preset and its configured provider key.
+
+The chat's balance control uses an account-local, user-entered budget and saved
+model prices; it has no payment or provider-wallet integration. Authenticated
+`/api/spending` polling is read-only. Budget and price changes use the same
+account routing and origin checks as other settings. No billing administration
+key is required. See [the spending guide](SPENDING.es.md) for coverage, price
+snapshots, streaming usage and unknown-cost behavior.
 
 ```bash
 uv tool install "discourselens[corpus,vectors,mcp]"

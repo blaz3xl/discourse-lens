@@ -95,6 +95,7 @@ def test_web_provider_settings_never_return_the_raw_key(tmp_path, monkeypatch):
                 "alias": "teun-test",
                 "endpoint": "http://127.0.0.1:8080/v1",
                 "encrypted": True,
+                "model_presets": [],
             }
         ]
         assert secret not in listed.text

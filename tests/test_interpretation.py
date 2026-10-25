@@ -1219,17 +1219,18 @@ def test_van_dijk_method_contract_is_versioned_and_included_in_runtime_prompt(tm
     )
 
     manifest = builtin_manifest("builtin.van-dijk-ideology")
-    assert manifest.version == "1.3.0"
-    assert manifest.methodology_refs == ["docs/methodology/van-dijk-ideology-review-v1.md"]
-    assert manifest.prompt_refs == ["van-dijk-ideology-review-v1"]
-    documentation = skill_documentation("builtin.van-dijk-ideology")
-    assert "ideological-square heuristic" in documentation.lower()
-    assert "defined comparison set" in documentation
-    assert "Inspect counterexamples and exceptions" in documentation
+    assert manifest.version == "1.7.0"
+    assert manifest.methodology_refs == ["docs/methodology/van-dijk-ideology-review-v2.md"]
+    assert manifest.prompt_refs == ["van-dijk-ideology-review-v2"]
+    documentation = " ".join(skill_documentation("builtin.van-dijk-ideology").split())
+    assert "comparative heuristic" in documentation.lower()
+    assert "configurations" in documentation
+    assert "Compare counterexamples" in documentation
     assert provider.system_prompt is not None
-    assert "do not assume who belongs to an ingroup or outgroup" in provider.system_prompt.lower()
-    assert "defined, comparable set of representations" in provider.system_prompt
-    assert "Do not infer an author's ideology" in provider.system_prompt
+    assert "identify groups from textual/contextual cues" in provider.system_prompt.lower()
+    assert "comparable representations" in provider.system_prompt
+    assert "Do not infer private beliefs" in provider.system_prompt
+    assert "issue-specific attitudes" in provider.system_prompt
     assert project.get_finding(result.finding_id)["skill_version"] == manifest.version
 
 
@@ -1497,20 +1498,18 @@ def test_sociocognitive_method_contract_is_versioned_and_included_in_runtime_pro
     )
 
     manifest = builtin_manifest("builtin.sociocognitive")
-    assert manifest.version == "1.3.0"
-    assert manifest.methodology_refs == ["docs/methodology/sociocognitive-review-v1.md"]
-    assert manifest.prompt_refs == ["sociocognitive-review-v1"]
+    assert manifest.version == "1.4.0"
+    assert manifest.methodology_refs == ["docs/methodology/sociocognitive-review-v2.md"]
+    assert manifest.prompt_refs == ["sociocognitive-review-v2"]
     documentation = skill_documentation("builtin.sociocognitive").lower()
-    assert "textual construction" in documentation
-    assert "theoretical sociocognitive interpretation" in documentation
-    assert "empirical claim about people/groups" in documentation
-    assert "does not prove that its audience accepts" in documentation
+    assert "discourse structures" in documentation
+    assert "models of events/situations" in documentation
+    assert "population-relevant" in documentation
+    assert "without asserting that recipients accept it" in documentation
     assert provider.system_prompt is not None
-    assert "phrase these as textual constructions" in provider.system_prompt.lower()
-    assert "not as proof that an author or reader actually believes or knows" in (
-        provider.system_prompt.lower()
-    )
-    assert "never perform mind-reading" in provider.system_prompt.lower()
+    assert "phrase observations as textual constructions" in provider.system_prompt.lower()
+    assert "a presupposition is not proof of audience acceptance" in provider.system_prompt.lower()
+    assert "do not claim direct access to a person's cognition" in provider.system_prompt.lower()
     assert project.get_finding(result.finding_id)["skill_version"] == manifest.version
 
 

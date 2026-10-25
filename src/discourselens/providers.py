@@ -6,7 +6,7 @@ import base64
 import json
 import math
 import re
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from email.utils import parsedate_to_datetime
@@ -373,7 +373,9 @@ def _openai_stream_delta(event_data: str) -> tuple[str | None, str | None]:
     return text, finish_reason
 
 
-def _iter_openai_stream_text(response: Any) -> Iterator[str]:
+def _iter_openai_stream_text(
+    response: Any, *, on_usage: Callable[[TokenUsage], None] | None = None
+) -> Iterator[str]:
     finished = False
     received_done = False
     for event_data in _iter_server_sent_data(response):
@@ -382,6 +384,17 @@ def _iter_openai_stream_text(response: Any) -> Iterator[str]:
                 raise ModelResponseError("provider stream ended before a finish reason")
             received_done = True
             break
+        try:
+            payload = _parse_provider_json(event_data)
+        except (ValueError, RecursionError):
+            raise ModelResponseError("provider stream contains malformed JSON") from None
+        if isinstance(payload, dict) and "error" not in payload and payload.get("choices") == [] and payload.get("usage") is not None:
+            if not finished:
+                raise ModelResponseError("provider stream reported final usage before completion")
+            usage = _openai_usage(payload["usage"])
+            if on_usage is not None and usage is not None:
+                on_usage(usage)
+            continue
         text, finish_reason = _openai_stream_delta(event_data)
         if finished and text:
             raise ModelResponseError("provider stream emitted text after completion")
@@ -396,7 +409,9 @@ def _iter_openai_stream_text(response: Any) -> Iterator[str]:
         raise ModelResponseError("provider stream ended without a completion marker")
 
 
-def _iter_openai_responses_stream_text(response: Any) -> Iterator[str]:
+def _iter_openai_responses_stream_text(
+    response: Any, *, on_usage: Callable[[TokenUsage], None] | None = None
+) -> Iterator[str]:
     completed = False
     emitted_text = False
     for event_data in _iter_server_sent_data(response):
@@ -436,6 +451,9 @@ def _iter_openai_responses_stream_text(response: Any) -> Iterator[str]:
         response_payload = payload.get("response")
         if not isinstance(response_payload, dict) or response_payload.get("status") != "completed":
             raise ModelResponseError("OpenAI Responses stream lacks a completed response")
+        usage = _openai_responses_usage(response_payload.get("usage"))
+        if on_usage is not None and usage is not None:
+            on_usage(usage)
         final_text = _openai_responses_output_text(response_payload)
         if not emitted_text:
             if not isinstance(final_text, str) or not final_text:
@@ -447,7 +465,9 @@ def _iter_openai_responses_stream_text(response: Any) -> Iterator[str]:
         raise ModelResponseError("OpenAI Responses stream ended without a completion event")
 
 
-def _iter_openai_responses_structured_stream_text(response: Any) -> Iterator[str]:
+def _iter_openai_responses_structured_stream_text(
+    response: Any, *, on_usage: Callable[[TokenUsage], None] | None = None
+) -> Iterator[str]:
     """Yield the final schema-constrained text from the completed response."""
     completed = False
     for event_data in _iter_server_sent_data(response):
@@ -483,6 +503,9 @@ def _iter_openai_responses_structured_stream_text(response: Any) -> Iterator[str
         response_payload = payload.get("response")
         if not isinstance(response_payload, dict) or response_payload.get("status") != "completed":
             raise ModelResponseError("OpenAI Responses stream lacks a completed response")
+        usage = _openai_responses_usage(response_payload.get("usage"))
+        if on_usage is not None and usage is not None:
+            on_usage(usage)
         final_text = _openai_responses_output_text(response_payload)
         if not final_text:
             raise ModelResponseError("OpenAI Responses stream contains no text output")
@@ -910,6 +933,8 @@ class OpenAICompatibleProvider:
         }
         if streaming:
             payload["stream"] = True
+            if request.on_usage is not None and self.provider_id == "openai":
+                payload["stream_options"] = {"include_usage": True}
         if request.response_schema is not None:
             payload["response_format"] = {
                 "type": "json_schema",
@@ -989,7 +1014,7 @@ class OpenAICompatibleProvider:
         http_request = self._generation_http_request(request, streaming=True)
         try:
             with _open_provider_request(http_request, timeout=self.timeout_seconds) as response:
-                yield from _iter_openai_stream_text(response)
+                yield from _iter_openai_stream_text(response, on_usage=request.on_usage)
         except HTTPError as exc:
             _raise_provider_http_error(exc, self.provider_id, "generation")
         except URLError:
@@ -1126,6 +1151,11 @@ class OpenAIResponsesProvider:
             raise ModelProviderError("provider endpoint is unavailable") from None
         except (OSError, ValueError, RecursionError):
             raise ModelProviderError("provider response could not be read") from None
+        return self._response_from_payload(payload, request)
+
+    def _response_from_payload(
+        self, payload: object, request: GenerationRequest
+    ) -> GenerationResponse:
         if not isinstance(payload, dict):
             raise ModelResponseError("OpenAI Responses API response must be a JSON object")
         response_status = payload.get("status")
@@ -1148,9 +1178,9 @@ class OpenAIResponsesProvider:
         try:
             with _open_provider_request(http_request, timeout=self.timeout_seconds) as response:
                 text_stream = (
-                    _iter_openai_responses_structured_stream_text(response)
+                    _iter_openai_responses_structured_stream_text(response, on_usage=request.on_usage)
                     if request.response_schema is not None
-                    else _iter_openai_responses_stream_text(response)
+                    else _iter_openai_responses_stream_text(response, on_usage=request.on_usage)
                 )
                 yield from text_stream
         except HTTPError as exc:
@@ -1159,6 +1189,89 @@ class OpenAIResponsesProvider:
             raise ModelProviderError("provider endpoint is unavailable") from None
         except OSError:
             raise ModelProviderError("provider streaming response could not be read") from None
+
+
+@dataclass(frozen=True)
+class WebResearchResponse(GenerationResponse):
+    """Discovery output with provider-issued URLs, separate from fetched evidence."""
+
+    web_sources: tuple[dict[str, str], ...] = ()
+    web_search_calls: int = 0
+
+    @property
+    def provider_usage(self) -> dict[str, int]:
+        return {"web_search_calls": self.web_search_calls}
+
+
+class OpenAIWebSearchProvider(OpenAIResponsesProvider):
+    """Explicit native web discovery using the selected model and credential."""
+
+    def _generation_http_request(self, request: GenerationRequest, *, streaming: bool) -> Request:
+        if streaming:
+            raise ModelProviderError("web context discovery uses a completed provenance response")
+        original = super()._generation_http_request(request, streaming=False)
+        if not isinstance(original.data, (bytes, bytearray)):
+            raise ModelProviderError("web discovery requires an encoded Responses request")
+        payload = json.loads(original.data)
+        payload["tools"] = [{"type": "web_search", "search_context_size": "medium"}]
+        payload["tool_choice"] = "required"
+        payload["max_tool_calls"] = 3
+        payload["include"] = ["web_search_call.action.sources"]
+        return Request(
+            original.full_url, _encode_provider_json(payload),
+            headers=dict(original.header_items()), method="POST",
+        )
+
+    def _response_from_payload(
+        self, payload: object, request: GenerationRequest
+    ) -> GenerationResponse:
+        response = super()._response_from_payload(payload, request)
+        assert isinstance(payload, dict)
+        sources: list[dict[str, str]] = []
+        discovered: list[object] = []
+        search_calls = 0
+
+        def add_source(value: object) -> None:
+            if not isinstance(value, dict):
+                return
+            url, title = value.get("url"), value.get("title")
+            if not isinstance(url, str) or len(url) > 2_048:
+                return
+            try:
+                parsed = urlparse(url)
+                if parsed.scheme not in {"https", "http"} or not parsed.hostname or parsed.username:
+                    return
+            except ValueError:
+                return
+            if len(sources) < 20 and not any(item["url"] == url for item in sources):
+                sources.append({"url": url, "title": title[:500] if isinstance(title, str) else url})
+
+        for item in payload.get("output", []):
+            if not isinstance(item, dict):
+                continue
+            if item.get("type") == "web_search_call":
+                search_calls += 1
+                action = item.get("action")
+                if isinstance(action, dict):
+                    candidates = action.get("sources")
+                    if isinstance(candidates, list):
+                        discovered.extend(candidates[:max(0, 100 - len(discovered))])
+            content = item.get("content")
+            for block in content if isinstance(content, list) else []:
+                if not isinstance(block, dict):
+                    continue
+                annotations = block.get("annotations")
+                for annotation in annotations if isinstance(annotations, list) else []:
+                    if isinstance(annotation, dict) and annotation.get("type") == "url_citation":
+                        add_source(annotation.get("url_citation", annotation))
+        for candidate in discovered:
+            add_source(candidate)
+        if not search_calls or not sources:
+            raise ModelResponseError("web search returned no provenance-bearing discovery results")
+        return WebResearchResponse(
+            response.text, response.provider, response.model, response.usage,
+            tuple(sources), search_calls,
+        )
 
 
 @dataclass(frozen=True)
@@ -3234,6 +3347,10 @@ def _openai_responses_output_text(payload: object) -> str:
     for item in output:
         if not isinstance(item, dict):
             raise ModelResponseError("OpenAI Responses API output item is malformed")
+        # Intermediate messages can contain a draft tool plan or a preamble.
+        # They are not part of the completed answer's JSON contract.
+        if item.get("phase") == "commentary":
+            continue
         content = item.get("content")
         if not isinstance(content, list):
             continue
