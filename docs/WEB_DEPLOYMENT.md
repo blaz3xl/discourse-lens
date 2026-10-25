@@ -257,4 +257,22 @@ Conversations use the selected saved preset and its configured provider key.
 uv tool install "discourselens[corpus,vectors,mcp]"
 discourselens --help
 discourselens-mcp --help
+### Stable public URL with Tailscale Funnel
+
+Cloudflare quick tunnels (`trycloudflare.com`) change URL on every restart, so
+they are not suitable for a fixed address. Tailscale Funnel gives the web app a
+stable HTTPS URL without a domain or open router ports:
+
+```bash
+sudo tailscale up
+sudo tailscale set --operator=$USER --hostname=discourselens   # once
+tailscale funnel --bg 8000
+tailscale funnel status
+```
+
+The URL has the form `https://<hostname>.<tailnet>.ts.net`. Enable HTTPS
+certificates and approve Funnel for the tailnet in the Tailscale admin console
+the first time. Stop publishing with `tailscale funnel --https=443 off`. Funnel
+exposes the app to the internet, so keep account login enabled.
+
 ```
