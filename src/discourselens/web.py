@@ -1057,6 +1057,7 @@ def _begin_chat_activity(
     *,
     metadata: dict[str, object],
     question: str,
+    project_root: Path,
 ) -> bool:
     timestamp = int(time.time())
     with _CHAT_ACTIVITY_LOCK:
@@ -1078,6 +1079,7 @@ def _begin_chat_activity(
             _CHAT_ACTIVITY.pop(oldest, None)
         _CHAT_ACTIVITY[conversation_id] = {
             "state": "running",
+            "_owner_project_root": str(project_root.resolve()),
             "metadata": metadata,
             "question": question,
             "started_at": timestamp,
@@ -1088,6 +1090,40 @@ def _begin_chat_activity(
             "updated_at": timestamp,
         }
         return True
+
+
+def _chat_activity_snapshot(activity: dict[str, object]) -> dict[str, object]:
+    metadata = activity.get("metadata", {})
+    events = activity.get("events", [])
+    return {
+        "state": activity.get("state", "idle"),
+        "metadata": dict(metadata) if isinstance(metadata, dict) else {},
+        "question": activity.get("question", ""),
+        "error": activity.get("error", ""),
+        "error_detail": activity.get("error_detail", ""),
+        "started_at": activity.get("started_at", 0),
+        "duration_seconds": activity.get("duration_seconds", 0),
+        "step": activity.get("step", 0),
+        "events": [dict(item) for item in events if isinstance(item, dict)]
+        if isinstance(events, list)
+        else [],
+    }
+
+
+def _update_chat_activity_metadata(
+    conversation_id: str, updates: dict[str, object]
+) -> dict[str, object]:
+    """Update and copy activity metadata under the same lock used by pollers."""
+    with _CHAT_ACTIVITY_LOCK:
+        activity = _CHAT_ACTIVITY.get(conversation_id)
+        if activity is None:
+            return dict(updates)
+        metadata = activity.get("metadata")
+        if not isinstance(metadata, dict):
+            metadata = {}
+            activity["metadata"] = metadata
+        metadata.update(updates)
+        return dict(metadata)
 
 
 def _finish_chat_activity(
@@ -2018,14 +2054,18 @@ async function refreshDetachedConversation(conversationId,activity){if($('chatCo
 function startActivityPolling(conversationId,{resumed=false,question=''}={}){
   if(activityPollTimer)clearInterval(activityPollTimer);
   renderLiveActivity({state:'running',started_at:Date.now()/1000,metadata:{preset_name:$('chatPreset').value,provider_id:modelPresetByName($('chatPreset').value)?.provider_id,model:modelPresetByName($('chatPreset').value)?.model,reasoning:$('chatReasoning').selectedOptions[0]?.textContent,retrieval_mode:$('chatRetrieval').value},events:[{text:'Conectando con el modelo y preparando las herramientas.',level:'info',step:0}]});
-  let settled=false,idlePolls=0;
+  let settled=false,idlePolls=0,pollFailures=0,pollInFlight=false;
   const poll=async()=>{
+    if(pollInFlight||settled)return;
+    pollInFlight=true;
     try{
-      const activity=await api(`/api/conversations/${encodeURIComponent(conversationId)}/activity`);renderLiveActivity(activity);
+      const activity=await api(`/api/conversations/${encodeURIComponent(conversationId)}/activity`),recovered=pollFailures>0;pollFailures=0;renderLiveActivity(activity);
+      if(resumed&&recovered&&activity.state==='running')status('chatStatus','Conexión de progreso restablecida; el análisis sigue en curso.');
       if(activity.state==='idle')idlePolls+=1;else idlePolls=0;
       if(resumed&&activity.state==='idle'&&idlePolls>=8&&!settled){settled=true;stopActivityPolling();const live=$('liveActivity');if(live)live.remove();if(question){const body=appendOptimisticMessage('assistant','');appendChatFailure(body.parentElement,{message:'No aparece un análisis activo en el servidor. Comprueba la conexión y vuelve a intentarlo.',question})}setChatGenerationBusy(false);status('chatStatus','No se ha encontrado un análisis activo. Puedes volver a enviar la pregunta.');return}
       if(resumed&&activity.state!=='running'&&activity.state!=='idle'&&!settled){settled=true;stopActivityPolling();await refreshDetachedConversation(conversationId,activity)}
-    }catch(error){if(resumed)status('chatStatus','No se pudo actualizar el estado; el análisis puede seguir en curso. La conversación se volverá a consultar al abrirla.')}
+    }catch(error){pollFailures+=1;if(resumed&&pollFailures>=3)status('chatStatus','No llegan las actualizaciones del progreso; sigo reintentando. El análisis continúa en el servidor.')}
+    finally{pollInFlight=false}
   };
   activityPollTimer=setInterval(poll,1200);void poll();
 }
@@ -2748,30 +2788,17 @@ def create_app(
 
     @api.get("/conversations/{conversation_id}/activity")
     def conversation_activity(conversation_id: str) -> dict[str, object]:
+        project_root = str(_request_project_root(project_path).resolve())
+        with _CHAT_ACTIVITY_LOCK:
+            activity = _CHAT_ACTIVITY.get(conversation_id)
+            if activity is not None and activity.get("_owner_project_root") == project_root:
+                return _chat_activity_snapshot(activity)
         try:
-            with Project.open(_request_project_root(project_path), read_only=True) as project:
+            with Project.open(Path(project_root), read_only=True) as project:
                 project.chat_conversation(conversation_id)
         except ProjectError:
             raise HTTPException(status_code=404, detail="No se encontró esa conversación") from None
-        with _CHAT_ACTIVITY_LOCK:
-            activity = _CHAT_ACTIVITY.get(conversation_id)
-            if activity is None:
-                return {"state": "idle", "metadata": {}, "events": []}
-            metadata = activity.get("metadata", {})
-            events = activity.get("events", [])
-            return {
-                "state": activity.get("state", "idle"),
-                "metadata": dict(metadata) if isinstance(metadata, dict) else {},
-                "question": activity.get("question", ""),
-                "error": activity.get("error", ""),
-                "error_detail": activity.get("error_detail", ""),
-                "started_at": activity.get("started_at", 0),
-                "duration_seconds": activity.get("duration_seconds", 0),
-                "step": activity.get("step", 0),
-                "events": [dict(item) for item in events if isinstance(item, dict)]
-                if isinstance(events, list)
-                else [],
-            }
+        return {"state": "idle", "metadata": {}, "events": []}
 
     @api.post("/conversations/{conversation_id}/messages", status_code=status.HTTP_201_CREATED)
     def send_chat_message(conversation_id: str, payload: dict[str, Any]) -> dict[str, object]:
@@ -2876,7 +2903,10 @@ def create_app(
                     ),
                 }
                 if not _begin_chat_activity(
-                    conversation_id, metadata=metadata, question=question
+                    conversation_id,
+                    metadata=metadata,
+                    question=question,
+                    project_root=_request_project_root(project_path),
                 ):
                     raise HTTPException(
                         status_code=409,
@@ -2906,9 +2936,8 @@ def create_app(
                         payload.get("embedding_egress_acknowledged", True) is not False,
                         **agent_arguments,
                     )
-                    metadata["selected_framework_ids"] = result.get("selected_framework_ids", [])
                     tool_results = result.get("tool_results", [])
-                    metadata["tools"] = (
+                    tool_names = (
                         [
                             item.get("tool_name")
                             for item in tool_results
@@ -2918,10 +2947,17 @@ def create_app(
                         if isinstance(tool_results, list)
                         else []
                     )
-                    metadata["duration_seconds"] = max(
-                        0, int(time.time()) - int(metadata["started_at"])
+                    activity_metadata = _update_chat_activity_metadata(
+                        conversation_id,
+                        {
+                            "selected_framework_ids": result.get("selected_framework_ids", []),
+                            "tools": tool_names,
+                            "duration_seconds": max(
+                                0, int(time.time()) - int(metadata["started_at"])
+                            ),
+                        },
                     )
-                    result["activity"] = metadata
+                    result["activity"] = activity_metadata
                     user_message_id, assistant_message_id = project.append_chat_turn(
                         conversation_id, question, result
                     )
