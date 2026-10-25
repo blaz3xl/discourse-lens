@@ -6215,10 +6215,23 @@ class Project:
     def delete_chat_conversation(self, conversation_id: str) -> None:
         """Delete one thread and its stored turns without changing analysis evidence."""
         self._require_writable()
-        cursor = self.db.execute("DELETE FROM chat_conversations WHERE id=?", (conversation_id,))
-        if cursor.rowcount != 1:
-            raise DocumentError("unknown chat conversation")
-        self.db.commit()
+        self.db.execute("BEGIN IMMEDIATE")
+        try:
+            row = self.db.execute(
+                "SELECT 1 FROM chat_conversations WHERE id=?", (conversation_id,)
+            ).fetchone()
+            if row is None:
+                raise DocumentError("unknown chat conversation")
+            self.db.execute(
+                "DELETE FROM chat_messages WHERE conversation_id=?", (conversation_id,)
+            )
+            self.db.execute(
+                "DELETE FROM chat_conversations WHERE id=?", (conversation_id,)
+            )
+            self.db.commit()
+        except BaseException:
+            self.db.rollback()
+            raise
 
     def save_model_price(self, price: ModelPrice) -> str:
         """Add one immutable version of a user-supplied exact-model price record."""
