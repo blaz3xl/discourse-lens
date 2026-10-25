@@ -47,6 +47,7 @@ def _model_rows(provider_id: str, payload: object, purpose: str) -> list[dict[st
     for row in rows[:_MAX_DISCOVERED_MODELS]:
         if not isinstance(row, dict):
             continue
+        capabilities: dict[str, bool] | None = None
         if provider_family == "gemini":
             supported_actions = row.get("supportedActions")
             if not isinstance(supported_actions, list):
@@ -85,7 +86,7 @@ def _model_rows(provider_id: str, payload: object, purpose: str) -> list[dict[st
         if not isinstance(display_name, str) or not display_name.strip() or len(display_name) > 256:
             display_name = model_id
         result: dict[str, object] = {"model": model_id, "display_name": display_name.strip()}
-        if provider_family in {"gemini", "cohere"}:
+        if capabilities is not None:
             result["capabilities"] = capabilities
         models[model_id] = result
     return [

@@ -3115,6 +3115,14 @@ class Project:
             raise DocumentError("unknown page in document revision")
         return row
 
+    def read_document(
+        self, revision_id: str, *, start_offset: int = 0, max_chars: int = 100_000
+    ) -> dict[str, object]:
+        """Read a bounded continuous interval with source locations and coverage."""
+        from .document_reading import read_document
+
+        return read_document(self, revision_id, start_offset=start_offset, max_chars=max_chars)
+
     def paragraph(self, paragraph_id: str) -> sqlite3.Row:
         """Return one immutable structural paragraph by its canonical ID."""
         row = self.db.execute("SELECT * FROM paragraphs WHERE id=?", (paragraph_id,)).fetchone()
@@ -3172,6 +3180,7 @@ class Project:
         retrieved_at: str,
         url: str | None = None,
         title: str | None = None,
+        retrieval_metadata: dict[str, object] | None = None,
     ) -> str:
         """Persist user-supplied external context without treating it as corpus text.
 
@@ -3205,13 +3214,21 @@ class Project:
                 f"external evidence URL must be nonblank and at most {MAX_EXTERNAL_SOURCE_URL_CHARS} characters"
             )
         evidence_id = uid()
-        payload = {
+        payload: dict[str, object] = {
             "source": source.strip(),
             "title": title.strip() if title else None,
             "url": url.strip() if url else None,
             "retrieved_at": retrieved_at.strip(),
             "excerpt": excerpt,
         }
+        if retrieval_metadata is not None:
+            try:
+                encoded_metadata = json.dumps(retrieval_metadata, allow_nan=False)
+            except (TypeError, ValueError):
+                raise EvidenceValidationError("external retrieval metadata must contain JSON values") from None
+            if not isinstance(retrieval_metadata, dict) or len(encoded_metadata) > 8_000:
+                raise EvidenceValidationError("external retrieval metadata must be a bounded object")
+            payload["retrieval_metadata"] = retrieval_metadata
         self.db.execute(
             "INSERT INTO evidence_artifacts VALUES(?,?,?,?,?)",
             (
@@ -6010,11 +6027,6 @@ class Project:
         elif retrieval_mode == "hybrid":
             if not isinstance(embedding_preset_name, str) or not embedding_preset_name.strip():
                 raise DocumentError("hybrid chat requires an embedding preset")
-            embedding_preset = self.model_preset(embedding_preset_name.strip())
-            if not self._model_preset_roles(
-                str(embedding_preset["provider_id"]), str(embedding_preset["model"])
-            )["embeddings"]:
-                raise DocumentError("hybrid chat requires an embedding-capable model preset")
             if (
                 not isinstance(embedding_artifact_ids, list)
                 or not embedding_artifact_ids
@@ -6025,6 +6037,11 @@ class Project:
                 or len(set(embedding_artifact_ids)) != len(embedding_artifact_ids)
             ):
                 raise DocumentError("hybrid chat requires unique embedding artifact IDs")
+            embedding_preset = self.model_preset(embedding_preset_name.strip())
+            if not self._model_preset_roles(
+                str(embedding_preset["provider_id"]), str(embedding_preset["model"])
+            )["embeddings"]:
+                raise DocumentError("hybrid chat requires an embedding-capable model preset")
         else:
             raise DocumentError("chat retrieval mode must be lexical or hybrid")
         conversation_id = uid()
@@ -6118,15 +6135,23 @@ class Project:
         ).fetchall()
         return [dict(row) for row in rows]
 
-    def chat_messages(self, conversation_id: str, *, limit: int = 100) -> list[dict[str, object]]:
+    def chat_messages(
+        self, conversation_id: str, *, limit: int = 100, recent: bool = False
+    ) -> list[dict[str, object]]:
+        """Read messages chronologically, optionally selecting the newest window."""
         self.chat_conversation(conversation_id)
         if type(limit) is not int or not 1 <= limit <= 500:
             raise DocumentError("chat message limit must be between 1 and 500")
+        if type(recent) is not bool:
+            raise DocumentError("chat recent selection must be a boolean")
+        order = "DESC" if recent else "ASC"
         rows = self.db.execute(
             "SELECT id,ordinal,role,content_json,analysis_run_id,finding_id,created_at "
-            "FROM chat_messages WHERE conversation_id=? ORDER BY ordinal LIMIT ?",
+            f"FROM chat_messages WHERE conversation_id=? ORDER BY ordinal {order} LIMIT ?",
             (conversation_id, limit),
         ).fetchall()
+        if recent:
+            rows.reverse()
         messages: list[dict[str, object]] = []
         for row in rows:
             try:
@@ -6682,6 +6707,7 @@ class Project:
         model_price: ModelPrice | None = None,
         endpoint: str | None = None,
         skill_run_id: str | None = None,
+        provider_usage: dict[str, int] | None = None,
     ) -> str:
         try:
             validate_credential_alias(credential_alias)
@@ -6701,7 +6727,18 @@ class Project:
             raise DocumentError(
                 "model execution endpoint must not contain credential material"
             ) from None
-        parameters = parameters or {}
+        parameters = dict(parameters or {})
+        if "_provider_usage" in parameters:
+            raise DocumentError("provider usage is reserved for provider-reported metadata")
+        if provider_usage is not None:
+            if (
+                not isinstance(provider_usage, dict)
+                or set(provider_usage) != {"web_search_calls"}
+                or type(provider_usage["web_search_calls"]) is not int
+                or not 0 <= provider_usage["web_search_calls"] <= 1000
+            ):
+                raise DocumentError("provider web search usage must be an integer from 0 to 1000")
+            parameters["_provider_usage"] = dict(provider_usage)
         if _contains_secret_config_key(parameters):
             raise DocumentError("model execution parameters must not contain secrets")
         try:

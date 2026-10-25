@@ -177,8 +177,11 @@ class GenerationRequest:
     response_schema_name: str | None = None
     response_schema: dict[str, object] | None = None
     image: GenerationImage | None = None
+    on_usage: Callable[[TokenUsage], None] | None = field(default=None, repr=False, compare=False)
 
     def __post_init__(self) -> None:
+        if self.on_usage is not None and not callable(self.on_usage):
+            raise ModelProviderError("generation usage callback must be callable")
         if not isinstance(self.prompt, str) or not self.prompt.strip():
             raise ModelProviderError("generation prompt must be non-empty text")
         if not isinstance(self.model, str) or not self.model.strip():

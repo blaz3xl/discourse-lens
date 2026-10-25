@@ -58,7 +58,7 @@ def test_web_landing_requires_token_for_project_data(web_client: TestClient):
     assert 'id="chatReasoning"' in landing.text
     assert "chat-controls{display:grid!important" in landing.text
     assert 'id="openSettingsSide"' in landing.text
-    assert "Enter envía · Shift+Enter añade una línea" in landing.text
+    assert "Enter: salto de línea · Shift+Enter: enviar" in landing.text
     assert "Conectar y cargar modelos" in landing.text
     assert web_client.get("/healthz").json() == {"status": "ok"}
     assert web_client.get("/api/documents").status_code == 401
@@ -175,6 +175,10 @@ def test_web_saves_model_preset_without_returning_provider_secret(
             "reasoning": "high",
             "reasoning_mode": None,
             "reasoning_budget_tokens": None,
+            "can_chat": True,
+            "can_embeddings": False,
+            "is_default": True,
+            "is_default_embedding": False,
         }
     ]
     assert "sk-test-secret-not-returned" not in listed.text
@@ -183,8 +187,9 @@ def test_web_saves_model_preset_without_returning_provider_secret(
 def test_web_discovers_models_using_only_saved_credential(web_client, monkeypatch):
     calls = []
 
-    def fake_discovery(project, provider_id, credential_alias):
+    def fake_discovery(project, provider_id, credential_alias, *, purpose):
         assert isinstance(project, Project)
+        assert purpose == "chat"
         calls.append((provider_id, credential_alias))
         return [{"model": "gpt-test", "display_name": "Test Chat"}]
 
@@ -230,6 +235,7 @@ def test_web_lists_declared_reasoning_options_for_chat(web_client, monkeypatch):
         "reasoning_efforts": ["low", "high"],
         "reasoning_modes": ["adaptive"],
         "current_reasoning": "low",
+        "saved_reasoning": None,
         "reasoning_budget_tokens": None,
         "allowed": True,
         "message": None,

@@ -343,6 +343,9 @@ READ_ONLY_MCP_TOOL_NAMES = frozenset(
         "get_research_bundle_chunk",
         "get_scope_revisions",
         "get_page",
+        "read_document",
+        "get_external_context",
+        "get_linguistic_method",
         "get_paragraph",
         "list_semantic_indexes",
         "search_semantic_passages",
@@ -5726,6 +5729,75 @@ def _bounded_comparison(result: dict[str, object], limit: int) -> dict[str, obje
         "total_rows": total_rows,
         "truncated": bool(result.get("has_more", len(rows) > limit)),
     }
+
+
+@server.tool()
+def get_linguistic_method(framework_id: str) -> dict[str, object]:
+    """Read the versioned theoretical/methodological lens and its primary references."""
+    manifest = builtin_manifest(f"builtin.{framework_id}")
+    return {
+        "framework_id": framework_id, "version": manifest.version,
+        "methodology": skill_documentation(f"builtin.{framework_id}"),
+        "source_role": "methodological_reference_not_document_evidence",
+    }
+
+
+@server.tool()
+def research_web_context(
+    query: str, preset_name: str, as_of_date: str | None = None
+) -> dict[str, object]:
+    """Research public context: search with the saved OpenAI model and read sources.
+
+    Use public author/document/actor metadata, not private document excerpts.
+    as_of_date identifies the document's historical horizon (YYYY-MM-DD).
+    Returns discovery leads plus up to two actual fetched, saved source excerpts.
+    Use fetch_web_source for further reading. Offline mode blocks this.
+    """
+    from .web_context import research_web_context as research
+
+    if _MCP_READ_ONLY:
+        raise ProjectError("web context discovery is unavailable in MCP read-only mode")
+    with _open_project() as project:
+        return research(project, query, preset_name, as_of_date=as_of_date)
+
+
+@server.tool()
+def fetch_web_source(
+    url: str, start_offset: McpInteger = 0, max_chars: McpInteger = 16_000
+) -> dict[str, object]:
+    """Read a public HTML/text/PDF source and save a dated, hashed external excerpt.
+
+    This is contextual evidence, never primary-corpus text. Private addresses and
+    credentials are not supported. Follow next_start_offset for more text.
+    """
+    from .web_context import fetch_web_source as fetch
+
+    if _MCP_READ_ONLY:
+        raise ProjectError("web context acquisition is unavailable in MCP read-only mode")
+    with _open_project() as project:
+        return fetch(project, url, start_offset=start_offset, max_chars=max_chars)
+
+
+@server.tool()
+def get_external_context(evidence_id: str) -> dict[str, object]:
+    """Read a saved contextual source with its acquisition provenance and excerpt."""
+    from .web_context import get_external_context as read_context
+
+    with _open_project() as project:
+        return read_context(project, evidence_id)
+
+
+@server.tool()
+def read_document(
+    revision_id: str, start_offset: McpInteger = 0, max_chars: McpInteger = 100_000
+) -> dict[str, object]:
+    """Read a whole document or continuous interval with page citations and coverage.
+
+    Prefer this to opening only introductory pages for document-wide questions.
+    Follow next_start_offset when has_more is true. This operation is read-only.
+    """
+    with _open_project() as project:
+        return project.read_document(revision_id, start_offset=start_offset, max_chars=max_chars)
 
 
 @server.tool()

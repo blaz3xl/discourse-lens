@@ -15,7 +15,7 @@ def test_openai_model_catalog_keeps_unique_well_formed_ids():
                 {"id": "x" * 257},
                 None,
             ]
-        },
+        }, "chat",
     ) == [
         {"model": "gpt-a", "display_name": "gpt-a"},
         {"model": "gpt-z", "display_name": "Updated Z"},
@@ -34,12 +34,15 @@ def test_gemini_catalog_only_includes_generation_capable_models():
                 },
                 {"name": "models/embeddinggemma", "supportedActions": ["embedContent"]},
             ]
-        },
-    ) == [{"model": "gemini-2.5-pro", "display_name": "Gemini Pro"}]
+        }, "chat",
+    ) == [{"model": "gemini-2.5-pro", "display_name": "Gemini Pro", "capabilities": {"chat": True, "embeddings": False}}]
 
 
 def test_discovery_uses_saved_secret_and_bounded_request(monkeypatch):
     class ProjectStub:
+        def model_capability_profile(self, provider_id, model):
+            return None
+
         def credential_reference(self, provider_id, alias):
             assert (provider_id, alias) == ("openai", "research")
             return {
@@ -72,7 +75,7 @@ def test_discovery_uses_saved_secret_and_bounded_request(monkeypatch):
     monkeypatch.setattr("discourselens.model_discovery._open_provider_request", open_request)
     items = discover_provider_models(ProjectStub(), "openai", "research")
 
-    assert items == [{"model": "gpt-research", "display_name": "Research"}]
+    assert items == [{"model": "gpt-research", "display_name": "Research", "capabilities": {"chat": True, "embeddings": False}}]
     request, timeout = calls[0]
     assert request.full_url == "https://api.openai.com/v1/models"
     assert request.get_header("Authorization") == "Bearer secret-key"
