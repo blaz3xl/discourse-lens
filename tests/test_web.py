@@ -217,6 +217,29 @@ def test_web_landing_gates_the_first_load_behind_a_loading_dialog(web_client: Te
         assert f"bootGate.done({step})" in page
 
 
+def test_web_landing_replaces_the_composer_footer_with_toasts_and_a_notice_history(
+    web_client: TestClient,
+):
+    page = web_client.get("/").text
+    # The line under the composer is gone: its messages are toasts, and an empty one no longer clears anything.
+    assert 'id="chatStatus"' not in page and 'id="uploadStatus"' not in page
+    assert "if(id==='chatStatus'||id==='uploadStatus'){if(msg)toast(" in page
+    # Errors stay long enough to read, and a message on the same channel replaces the previous one.
+    assert "duration=kind==='error'?7000:4200" in page and "old.dataset.key===key" in page
+    # A bell next to Fuentes keeps the history of what the toasts showed.
+    assert page.index('id="openLibrary"') < page.index('id="openNotices"')
+    assert 'popovertarget="noticesPanel"' in page and 'id="noticesPanel"' in page
+    assert "Aquí quedan los avisos que van saliendo" in page
+    assert "function recordNotice(text,kind)" in page and "NOTICE_LIMIT=50" in page
+    # The turn count shown when a conversation opens is routine: a toast, but not kept and never "unread".
+    assert "{key:'chat',routine:true}" in page and "if(!routine)recordNotice(message,kind)" in page
+    # Messages are placed as text (never as HTML), kept per browser and removed at sign-out.
+    assert "text.append(item.text)" in page and "store.set('dl:notices'" in page
+    assert "clearNoticeLog();store.remove('dl:session')" in page
+    # Toasts appear under the header and the tools row, so they never cover the project and conversation names.
+    assert ".app-authenticated .ws-toasts{top:110px}" in page
+
+
 def test_chat_web_target_shows_the_page_without_credentials_or_fragments():
     shown, link = _chat_web_target(
         "fetch_web_source",

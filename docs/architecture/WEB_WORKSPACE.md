@@ -59,8 +59,28 @@ updating and remote access, see the [web deployment guide](../WEB_DEPLOYMENT.md)
   rebuilt on every change.
 - `localStorage` keys: `dl:session` (a session exists), `dl:last` (`{p, c}`: the
   last project and conversation), `dl:balance` (the last balance that could be
-  computed, kept while a newer figure is incomplete). All are removed on
-  sign-out. The token-mode credential lives in `sessionStorage`.
+  computed, kept while a newer figure is incomplete), `dl:notices` (the notice
+  history below). All are removed on sign-out. The token-mode credential lives
+  in `sessionStorage`.
+
+## Toasts and notices
+
+The composer has no footer line. What the workspace says about itself is a
+toast: `toast(message, {kind, key, routine})` shows it under the header and the
+tools row, so it never covers the project and conversation names. Info toasts
+last 4.2 s and errors 7 s (errors are `role="alert"`); a toast with a `key`
+replaces the previous one of its channel instead of stacking. `status('chatStatus'
+| 'uploadStatus', ...)` remains as an alias that raises a toast; the other
+`status(id, ...)` lines (settings, analysis tools) still write into their own panel.
+
+Every toast except a *routine* one (the turn count shown when a conversation
+opens) is also recorded by `recordNotice`: newest first, at most 50, and an
+identical message within 30 s becomes one entry with `×N`. The bell next to
+**Fuentes** (`#openNotices`, label "Avisos") opens `#noticesPanel`, a popover
+anchored under it that lists the entries with their time; its badge counts what
+arrived since the panel was last open, and routine toasts never count. The
+history lives in `localStorage` (`dl:notices`), is validated and capped when it is
+loaded, is rendered as text, and is removed at sign-out and when the session is lost.
 
 ## Running analyses and reconnecting
 
