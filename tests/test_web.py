@@ -240,6 +240,16 @@ def test_web_landing_replaces_the_composer_footer_with_toasts_and_a_notice_histo
     assert ".app-authenticated .ws-toasts{top:110px}" in page
 
 
+def test_web_landing_keeps_the_workspace_when_one_conversation_cannot_open(web_client: TestClient):
+    page = web_client.get("/").text
+    # A conversation that fails to load gets its own error and retry; the sidebar and the header stay.
+    assert "function showConversationError(id,error)" in page
+    assert "if(!cached)showConversationError(id,error);" in page
+    assert "retry.addEventListener('click',()=>void openConversation(id))" in page
+    # The workspace-wide error is reserved for the first load: its definition and the boot burst.
+    assert page.count("showBootError(") == 2
+
+
 def test_chat_web_target_shows_the_page_without_credentials_or_fragments():
     shown, link = _chat_web_target(
         "fetch_web_source",

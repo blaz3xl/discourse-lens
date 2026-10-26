@@ -2803,6 +2803,15 @@ function showBootError(error){
   root.dataset.view='error';root.removeAttribute('aria-busy');root.replaceChildren(box)
 }
 
+/* One conversation that cannot be opened is not a failed workspace: the sidebar and the header stay, and only this view offers to try again. */
+function showConversationError(id,error){
+  const root=$('chatMessages'),box=el('div','ws-boot-error'),retry=el('button','button','Reintentar'),listed=conversationItems.find(item=>sameId(item.id,id));
+  retry.type='button';retry.addEventListener('click',()=>void openConversation(id));
+  box.setAttribute('role','alert');
+  box.append(el('strong','',`No se pudo abrir «${listed?.title||'la conversación'}»`),el('span','',error.message||'Inténtalo de nuevo.'),retry);
+  root.dataset.view='error';root.removeAttribute('aria-busy');root.replaceChildren(box)
+}
+
 /* Conversations */
 async function fetchConversationList(){
   const startedAt=performance.now(),data=await api('/api/conversations'),serverIds=new Set(data.items.map(item=>String(item.id)));
@@ -2900,7 +2909,7 @@ async function openConversation(id=$('chatConversation').value,{prefetched=null}
   }catch(error){
     if(seq!==navSeq)return;
     stopActivityPolling();setChatGenerationBusy(false);
-    if(!cached)showBootError(new Error(`No se pudo abrir la conversación: ${error.message}`));
+    if(!cached)showConversationError(id,error);
     status('chatStatus',`No se pudo abrir la conversación: ${error.message}`,'error')
   }
 }
