@@ -25,6 +25,11 @@ Docker image, creates a private local project directory, and opens the app at
 `http://127.0.0.1:8000`. Create an account from the login page with a username
 and password. Add `--local-embeddings` to start Ollama for local embeddings.
 The launcher keeps the app on localhost; see the [web guide](docs/WEB_DEPLOYMENT.md).
+The workspace is self-hosted: its data stays on the machine that runs it, and the
+same container can be published for other devices, so the guide also covers
+[updating the service](docs/WEB_DEPLOYMENT.md#updating-the-running-service),
+[remote access and accounts](docs/WEB_DEPLOYMENT.md#remote-access) and
+[speed over a remote link](docs/WEB_DEPLOYMENT.md#speed-over-a-remote-link).
 
 The browser workspace uses local email/password accounts with a private tenant
 project for each account. It supports import,

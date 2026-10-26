@@ -1,16 +1,21 @@
+import time
 from pathlib import Path
 from types import SimpleNamespace
 from typing import cast
 
 import pytest
+from fastapi.responses import StreamingResponse
 from fastapi.testclient import TestClient
 
+from discourselens import web as web_module
 from discourselens.errors import QuotaError
 from discourselens.project import Project
 from discourselens.vectors import RetrievalSearchResult, VectorHit
 from discourselens.web import (
     _chat_debug,
     _chat_generation_error_message,
+    _chat_web_result_summary,
+    _chat_web_target,
     create_app,
 )
 
@@ -65,6 +70,295 @@ def test_web_landing_requires_token_for_project_data(web_client: TestClient):
     assert web_client.get(
         "/api/documents", headers={"Authorization": f"Bearer {TOKEN}"}
     ).json()["total"] == 0
+
+
+def test_web_landing_is_compressed_and_revalidated_with_an_etag(web_client: TestClient):
+    first = web_client.get("/", headers={"Accept-Encoding": "gzip"})
+    assert first.status_code == 200
+    assert first.headers["content-encoding"] == "gzip"
+    assert first.headers["cache-control"] == "no-cache"
+    etag = first.headers["etag"]
+    assert etag.startswith('W/"')
+    assert "Lee las fuentes." in first.text
+
+    # Any validator that lists the current tag (weak or strong, alone or in a list) revalidates.
+    for validator in (etag, etag.removeprefix("W/"), f'"other", {etag}', "*"):
+        revalidated = web_client.get("/", headers={"If-None-Match": validator})
+        assert revalidated.status_code == 304
+        assert revalidated.content == b""
+        assert revalidated.headers["etag"] == etag
+
+    stale = web_client.get("/", headers={"If-None-Match": 'W/"stale"'})
+    assert stale.status_code == 200
+    assert "Lee las fuentes." in stale.text
+
+
+def test_compression_never_buffers_server_sent_events(tmp_path: Path):
+    # Chat answers stream as text/event-stream; a compressing middleware that buffered them
+    # would make the reply appear all at once instead of token by token.
+    project_path = tmp_path / "project"
+    Project.init(project_path).close()
+    app = create_app(project_path, TOKEN)
+
+    @app.get("/probe-events", include_in_schema=False)
+    async def probe_events() -> StreamingResponse:
+        async def events():
+            for index in range(3):
+                yield f"data: {index}\n\n"
+
+        return StreamingResponse(events(), media_type="text/event-stream")
+
+    with TestClient(app) as client:
+        response = client.get("/probe-events", headers={"Accept-Encoding": "gzip"})
+    assert response.status_code == 200
+    assert "content-encoding" not in response.headers
+    assert response.text == "data: 0\n\ndata: 1\n\ndata: 2\n\n"
+
+
+def test_web_landing_keeps_the_last_balance_and_can_reconnect_to_running_analyses(
+    web_client: TestClient,
+):
+    page = web_client.get("/").text
+    # The balance chip never swaps the figure for a "pending" label; the tooltip explains it instead.
+    assert "Saldo pendiente" not in page
+    assert "Último saldo calculado" in page
+    # A reopened page finds analyses that kept running on the server and offers to reconnect.
+    assert 'id="runningNotice"' in page and 'id="runningReconnect"' in page
+    assert page.count("/api/chat-activity") >= 2
+
+
+def test_web_landing_compares_groups_with_ticks_and_explains_when_it_cannot(web_client: TestClient):
+    page = web_client.get("/").text
+    # Two lists of ticks replace the two multi-selects whose single entry looked selected but was not.
+    assert 'id="compareGroupA"' in page and 'id="compareGroupB"' in page
+    assert 'data-tool-target="compareGroupA"' in page
+    assert 'multiple size="5"' not in page
+    # A project with fewer than two documents is told why instead of getting a form that can never work.
+    assert "Para comparar hacen falta al menos dos documentos" in page
+    # A missing group is named, and failures are painted as errors rather than as information.
+    assert "Elige al menos un documento en ${missing}." in page
+    assert "status('comparisonStatus',e.message,'error')" in page
+    assert '.status[data-tone="error"]' in page
+    # The two scopes are told apart by their tail: UUIDv7 heads are identical for ids created together.
+    assert "data.left_scope_id.slice(-8)" in page and "data.left_scope_id.slice(0,8)" not in page
+
+
+def test_web_landing_shows_when_each_chat_was_created(web_client: TestClient):
+    page = web_client.get("/").text
+    # The history row is the title plus a second line with the creation moment, in parentheses.
+    assert "el('span','ws-conv-title')" in page and "el('span','ws-conv-date')" in page
+    assert "stamp=createdStamp(item.created_at),when=stamp?`(${stamp})`:''" in page
+    # dd/mm/yyyy hh:mm with zero padding, in the reader's own time zone.
+    assert (
+        "${pad2(date.getDate())}/${pad2(date.getMonth()+1)}/${date.getFullYear()} "
+        "${pad2(date.getHours())}:${pad2(date.getMinutes())}"
+    ) in page
+    # A missing or unparsable value draws no date line instead of "Invalid Date".
+    assert "Number.isNaN(date.getTime())" in page and ".ws-conv-date:empty{display:none}" in page
+    # The date also reaches the tooltip and the spoken name of the row.
+    assert "row.open.title=named" in page and "`${named} (análisis en curso)`" in page
+
+
+def test_web_conversation_list_carries_a_creation_moment_with_a_utc_offset(tmp_path: Path):
+    from datetime import UTC, datetime, timedelta
+
+    from discourselens.models import CredentialReference, ModelPreset
+
+    project_root = tmp_path / "project"
+    project = Project.init(project_root)
+    project.save_credential_reference(CredentialReference("openai", "fixture", "DL_CHAT_KEY"))
+    project.save_model_preset(ModelPreset("chat-model", "openai", "fixture", "gpt-example"))
+    project.close()
+    with TestClient(create_app(project_root, TOKEN)) as client:
+        headers = {"Authorization": f"Bearer {TOKEN}"}
+        before = datetime.now(UTC)
+        created = client.post(
+            "/api/conversations",
+            headers=headers,
+            json={
+                "revision_ids": [],
+                "framework_id": "auto",
+                "preset_name": "chat-model",
+                "retrieval_mode": "lexical",
+            },
+        )
+        assert created.status_code == 201
+        listed = client.get("/api/conversations", headers=headers).json()["items"]
+
+    item = next(entry for entry in listed if entry["id"] == created.json()["id"])
+    assert item["created_at"] == created.json()["created_at"]
+    # The browser shows local time only if the stored value says which instant it is: an offset is required.
+    stamp = datetime.fromisoformat(item["created_at"])
+    assert stamp.tzinfo is not None and stamp.utcoffset() == timedelta(0)
+    assert before <= stamp <= datetime.now(UTC)
+
+
+def test_web_landing_gates_the_first_load_behind_a_loading_dialog(web_client: TestClient):
+    page = web_client.get("/").text
+    # A dialog in the family of the upload progress explains the wait, and Esc cannot dismiss it.
+    assert 'id="bootDialog"' in page and 'id="bootProgress"' in page and 'id="bootReload"' in page
+    assert "Cargando tu espacio" in page
+    assert "esta ventana se cierra sola cuando todo está listo" in page
+    assert "$('bootDialog').addEventListener('cancel',event=>event.preventDefault())" in page
+    # Until the workspace is complete the page is inert; it is released on success, on failure and on sign-out.
+    assert "$('app').inert=true" in page and "$('app').inert=false" in page
+    assert "try{await runBoot()}finally{bootGate.end()}" in page
+    assert "catch(error){bootGate.end(true);showBootError(error);return}" in page
+    assert "else{bootGate.reset();for(const dialog of document.querySelectorAll('dialog[open]'))dialog.close();" in page
+    # A reload with a known session starts waiting before the session check answers; fast loads never flash the dialog.
+    assert "bootGate.begin(true)" in page and "SHOW_AFTER=700" in page and "MIN_VISIBLE=400" in page
+    # It closes by itself when the last step arrives, and Esc cannot even start a close request.
+    assert "if(finished.size===LABELS.length)end()" in page
+    assert "event.key==='Escape'&&active&&dialog.open" in page
+    # The models step is "the list is in place", not the optional thinking options that load after it.
+    assert "if(bootPresetsApplied){bootPresetsApplied();bootPresetsApplied=null}" in page
+    # One step per real piece of the load, reported as it arrives.
+    for step in range(4):
+        assert f"bootGate.done({step})" in page
+
+
+def test_chat_web_target_shows_the_page_without_credentials_or_fragments():
+    shown, link = _chat_web_target(
+        "fetch_web_source",
+        {"url": "https://user:secret@Example.org:8443/politica/migracion?pagina=2#intro"},
+    )
+    assert shown == "example.org:8443/politica/migracion?pagina=2"
+    assert link == "https://example.org:8443/politica/migracion?pagina=2"
+    assert "secret" not in shown + (link or "")
+    assert _chat_web_target("fetch_web_source", {"url": "http://[2001:db8::1]/a"}) == (
+        "[2001:db8::1]/a",
+        "http://[2001:db8::1]/a",
+    )
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "javascript:alert(1)",
+        "file:///etc/passwd",
+        "ftp://example.org/x",
+        "https:///sin-host",
+        "https://[::1",
+        "https://example.org/a\x07b",
+        "no es una dirección",
+        "",
+        None,
+        12,
+    ],
+)
+def test_chat_web_target_ignores_addresses_that_are_not_public_web_pages(url: object):
+    assert _chat_web_target("fetch_web_source", {"url": url}) == ("", None)
+
+
+def test_chat_web_target_shortens_long_addresses_and_names_searches():
+    shown, link = _chat_web_target("fetch_web_source", {"url": "https://example.org/" + "a" * 300})
+    assert len(shown) == 110 and shown.endswith("…")
+    assert link is not None and link.startswith("https://example.org/aaa")
+    assert _chat_web_target("fetch_web_source", {"url": "https://example.org/" + "a" * 2_100})[1] is None
+    assert _chat_web_target(
+        "research_web_context", {"query": "  Autora   X\n Instituto Y ", "preset_name": "p"}
+    ) == ("búsqueda: «Autora X Instituto Y»", None)
+    long_query, _ = _chat_web_target("research_web_context", {"query": "q" * 400})
+    assert long_query.endswith("…»") and len(long_query) < 130
+    assert _chat_web_target("research_web_context", {"query": "   "}) == ("", None)
+    assert _chat_web_target("read_document", {"url": "https://example.org/"}) == ("", None)
+
+
+def test_chat_web_result_summary_reports_what_the_tool_really_read():
+    page = '{"title": "Informe 2024", "url": "https://example.org/informe"}'
+    assert _chat_web_result_summary("fetch_web_source", page) == (
+        "Fuente leída: «Informe 2024» · example.org/informe.",
+        "https://example.org/informe",
+    )
+    untitled = '{"title": "https://example.org/x", "url": "https://example.org/x"}'
+    assert _chat_web_result_summary("fetch_web_source", untitled) == (
+        "Fuente leída: example.org/x.",
+        "https://example.org/x",
+    )
+    research = (
+        '{"sources": [{"url": "https://a.org/1"}, {"url": "https://b.org/2"}, {"url": "https://c.org/3"}],'
+        ' "inspected_sources": [{"url": "https://a.org/1"}, {"url": "https://b.org/2"}]}'
+    )
+    assert _chat_web_result_summary("research_web_context", research) == (
+        "Búsqueda completada: 3 fuentes encontradas; leídas 2: a.org, b.org.",
+        None,
+    )
+    assert _chat_web_result_summary(
+        "research_web_context", '{"sources": [{"url": "https://a.org/1"}], "inspected_sources": []}'
+    ) == ("Búsqueda completada: 1 fuente encontrada, sin leer: a.org.", None)
+    assert _chat_web_result_summary("research_web_context", "{}") == (
+        "Búsqueda completada sin fuentes.",
+        None,
+    )
+    for tool, payload in (
+        ("fetch_web_source", "no es json"),
+        ("fetch_web_source", "[1, 2]"),
+        ("fetch_web_source", '{"transport_truncated": true}'),
+        ("read_document", page),
+    ):
+        assert _chat_web_result_summary(tool, payload) is None
+
+
+def test_running_analyses_can_be_listed_and_read_back_with_the_partial_answer(
+    web_client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.setattr(web_module, "_CHAT_ACTIVITY", {})
+    headers = {"Authorization": f"Bearer {TOKEN}"}
+    root = tmp_path / "project"
+    conversation = "11111111-1111-4111-8111-111111111111"
+    other = "22222222-2222-4222-8222-222222222222"
+    assert web_client.get("/api/chat-activity").status_code == 401
+    assert web_client.get("/api/chat-activity", headers=headers).json() == {"items": []}
+
+    assert web_module._begin_chat_activity(
+        conversation, metadata={}, question="¿Qué dice el informe?", project_root=root
+    )
+    assert web_module._begin_chat_activity(
+        other, metadata={}, question="De otro espacio", project_root=tmp_path / "otro"
+    )
+    marker = web_module._ACTIVE_CHAT_CONVERSATION.set(conversation)
+    try:
+        web_module._record_chat_activity(
+            "Paso 1: leer y documentar una fuente web · example.org/a.",
+            step=1,
+            url="https://example.org/a",
+        )
+    finally:
+        web_module._ACTIVE_CHAT_CONVERSATION.reset(marker)
+    web_module._append_chat_partial(conversation, "Hola ")
+    web_module._append_chat_partial(conversation, "mundo")
+
+    items = web_client.get("/api/chat-activity", headers=headers).json()["items"]
+    assert [item["conversation_id"] for item in items] == [conversation]
+    assert items[0]["question"] == "¿Qué dice el informe?" and items[0]["step"] == 1
+
+    snapshot = web_client.get(f"/api/conversations/{conversation}/activity", headers=headers).json()
+    assert snapshot["state"] == "running"
+    assert snapshot["partial_text"] == "Hola mundo"
+    assert snapshot["events"][-1]["url"] == "https://example.org/a"
+
+    web_module._CHAT_ACTIVITY[conversation]["updated_at"] = int(time.time()) - 4_000
+    assert web_client.get("/api/chat-activity", headers=headers).json() == {"items": []}
+    web_module._CHAT_ACTIVITY[conversation]["updated_at"] = int(time.time())
+
+    web_module._finish_chat_activity(conversation, "complete", "Respuesta completada.")
+    assert web_client.get("/api/chat-activity", headers=headers).json() == {"items": []}
+    finished = web_client.get(f"/api/conversations/{conversation}/activity", headers=headers).json()
+    assert finished["state"] == "complete" and finished["partial_text"] == ""
+    web_module._append_chat_partial(conversation, "tarde")
+    assert "partial_text" not in web_module._CHAT_ACTIVITY[conversation]
+
+
+def test_partial_answer_is_bounded(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    monkeypatch.setattr(web_module, "_CHAT_ACTIVITY", {})
+    conversation = "33333333-3333-4333-8333-333333333333"
+    assert web_module._begin_chat_activity(
+        conversation, metadata={}, question="q", project_root=tmp_path
+    )
+    web_module._append_chat_partial(conversation, "x" * (web_module._CHAT_PARTIAL_MAX_CHARS + 50))
+    web_module._append_chat_partial(conversation, "y" * 10)
+    partial = web_module._CHAT_ACTIVITY[conversation]["partial_text"]
+    assert isinstance(partial, str) and len(partial) == web_module._CHAT_PARTIAL_MAX_CHARS
 
 
 def test_web_connector_status_reports_unconfigured_oauth_without_secrets(

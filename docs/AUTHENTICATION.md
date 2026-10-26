@@ -1,6 +1,6 @@
 # Browser login
 
-The local browser app uses a username (email address) and password. Signup asks for those two values; the display name is derived from the username. Each account receives an isolated project under
+The browser app uses a username (email address) and password. Signup asks for those two values; the display name is derived from the username. Each account receives an isolated project under
 `DISCOURSELENS_PROJECT_DIR/tenants/`.
 
 Passwords are stored as salted scrypt hashes in a private SQLite database. The
@@ -21,6 +21,13 @@ local app, and the host port is bound to localhost.
 The launcher keeps the session key and encrypted-provider key in a private
 `.env.local` file. Keep it stable across restarts. Account records and
 workspaces live in the project directory; do not commit that directory.
+
+Registration stays open for as long as `DISCOURSELENS_WEB_ALLOW_REGISTRATION`
+is `true`, which is the default. That is right for localhost, but when the app
+is reachable from outside the machine (reverse proxy, Tailscale Funnel) it lets
+anyone who can load the page create an account; see
+[Remote access](WEB_DEPLOYMENT.md#remote-access). Five failed sign-ins within
+15 minutes lock that sign-in for 15 minutes, and a session lasts 8 hours.
 
 ## Manage accounts
 

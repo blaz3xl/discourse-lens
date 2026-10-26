@@ -1,10 +1,37 @@
-# DiscourseLens local web app
+# DiscourseLens web app
 
 The browser workspace runs the shared Python Core in Docker and keeps one
-isolated project per local account. It supports document import, literal
-search, corpus statistics, cited analysis, and model-assisted conversations.
-Provider credentials are encrypted in each project database. Passwords are
-stored as salted scrypt hashes in a private account database.
+isolated project per account. It supports document import, literal search,
+corpus statistics, cited analysis, and model-assisted conversations. Provider
+credentials are encrypted in each project database. Passwords are stored as
+salted scrypt hashes in a private account database.
+
+## Where it runs
+
+The web app is self-hosted: the data and the computation stay on the machine
+that runs the container, but the browser does not have to be on that machine.
+
+```text
+browser ──HTTPS──▶ reverse proxy or Tailscale Funnel ──▶ 127.0.0.1:8000 ──▶ web container
+(any device)       (only if you publish the app)         (host port)          ├─▶ DISCOURSELENS_PROJECT_DIR (bind mount)
+                                                                              └─▶ model providers and public pages
+                                                                                  (only through saved presets and tools)
+```
+
+- **Local use.** `./scripts/start-local.sh` publishes the app on localhost only.
+- **Remote use.** A TLS reverse proxy or Tailscale Funnel lets other devices
+  reach the same container ([Remote access](#remote-access)). "Local" then
+  describes where the data lives, not who can reach the app: once the URL is
+  public, treat it as an internet-facing service and follow the checklist there.
+- **The host does everything.** It serves the page and the API, stores the
+  database, processes documents and runs the analyses. If the machine sleeps or
+  goes offline the URL stops answering, and restarting the container ends any
+  analysis still running ([Updating](#updating-the-running-service)).
+- **What leaves the host.** Only what you configure: paragraph text sent to an
+  embedding provider when you build or query an index, conversation turns and
+  cited excerpts sent to the chat model of the selected preset, and the public
+  pages the conversation's web tools fetch. Lexical search and corpus
+  statistics stay local.
 
 ## Start locally
 
@@ -32,6 +59,36 @@ add the embedding preset in **Modelos y presets**.
 The upload limit defaults to 100 MiB. Uploaded files are streamed to a
 temporary file and copied into the project's managed source storage by the
 Core.
+
+## Updating the running service
+
+The container serves the code baked into its image when it was built. Pulling
+or editing the repository changes nothing that `http://127.0.0.1:8000` or a
+public URL (for example Tailscale Funnel) shows until the image is rebuilt and
+the service recreated:
+
+```bash
+docker compose -f compose.web.yaml up -d --build web
+```
+
+`./scripts/start-local.sh` does the same for the local launcher. The project
+directory is a bind mount, so accounts, documents, conversations and indexes
+are kept. Two details matter when restarting:
+
+- Sessions are signed cookies that last 8 hours, so people stay signed in as
+  long as `DISCOURSELENS_WEB_SESSION_SECRET` does not change.
+- An analysis that is still running is lost: its progress lives in the server's
+  memory. A turn is stored when its answer is complete (question and answer
+  together), so an interrupted turn is not saved and has to be asked again.
+  Restart when no analysis is running.
+
+The page is sent with an `ETag` and `Cache-Control: no-cache`, so every browser
+picks up a new build on its next load without clearing its cache. To confirm
+which build a URL serves, compare the tag before and after a rebuild:
+
+```bash
+curl -s -D - -o /dev/null -H 'Accept-Encoding: gzip' https://<your-host>/ | grep -i '^etag'
+```
 
 ## Persistence and retrieval
 
@@ -257,6 +314,23 @@ trusted forwarding headers only from the proxy. Do not publish port 8000
 directly to an untrusted network. Use a separate project directory per
 deployment; local accounts are isolated at the project boundary.
 
+Checklist before publishing the app (set these in the environment Compose reads):
+
+| Variable | For a public URL |
+| --- | --- |
+| `DISCOURSELENS_WEB_PUBLIC_ORIGIN` | The HTTPS origin people type; comma-separate several. Requests that change state must carry a matching `Origin` or they are rejected with 403, and the session cookie becomes `Secure` by default. |
+| `DISCOURSELENS_WEB_ALLOW_REGISTRATION` | Defaults to `true`, which suits the localhost launcher. On a public URL anyone who can open the page can create an account, and every account gets its own workspace on this machine's disk, CPU and network. Create the accounts you need, then set it to `false` and recreate the service; add later accounts with `discourselens-web-user` ([Manage accounts](AUTHENTICATION.md#manage-accounts)). |
+| `DISCOURSELENS_WEB_SESSION_SECRET` | At least 32 bytes, private and stable. Changing it signs everyone out. |
+| `DISCOURSELENS_WEB_PROXY_TRUSTED_IPS` | Addresses allowed to set forwarding headers. The default, `127.0.0.1,172.16.0.0/12`, covers a proxy on the host or on Docker's default networks. |
+
+Five failed sign-ins within 15 minutes lock that sign-in for 15 minutes. To see
+what a URL currently allows, read its public configuration; it reports
+`registration_enabled`:
+
+```bash
+curl -s https://<your-host>/auth/config
+```
+
 ### Stable public URL with Tailscale Funnel
 
 Cloudflare quick tunnels (`trycloudflare.com`) change URL on every restart, so
@@ -273,7 +347,58 @@ tailscale funnel status
 The URL has the form `https://<hostname>.<tailnet>.ts.net`. Enable HTTPS
 certificates and approve Funnel for the tailnet in the Tailscale admin console
 the first time. Stop publishing with `tailscale funnel --https=443 off`. Funnel
-exposes the app to the internet, so keep account login enabled.
+exposes the app to the internet, so keep account login enabled and review the
+checklist above, registration in particular.
+
+The URL answers only while the host is on and `tailscaled` is running. Funnel
+carries every request over an encrypted relay, so each one pays the relay's
+round trip and the host's upload bandwidth
+([Speed over a remote link](#speed-over-a-remote-link)). Whatever the container
+serves is what the URL shows, so [rebuild](#updating-the-running-service) after
+changing the code.
+
+## Speed over a remote link
+
+On the evaluation host, measured on 2026-10-26 over loopback, `/healthz` answers
+in about 0.6 ms, the compressed page (67 KB) in 11 to 15 ms, and an unchanged
+page revalidates in 0.7 ms with an empty body. The host is not the bottleneck:
+seconds of waiting come from the network path and from how many requests have
+to finish one after another, because each sequential request costs one round
+trip of the link (Funnel, mobile data, a distant relay).
+
+How the web app keeps that cost low:
+
+- The page and large JSON bodies are gzip-compressed (event streams are not),
+  and the page carries an `ETag`, so reloading an unchanged page transfers
+  headers only.
+- When the browser remembers an open session, a small script in the page head
+  starts the first API requests while the page is still downloading: projects,
+  conversations, models, balance, running analyses and, for the last
+  conversation opened, its sources and messages. The workspace reuses those
+  answers instead of asking again.
+- The workspace loads in one parallel burst behind placeholders and keeps a
+  per-project cache that is revalidated in the background, so moving between
+  projects and conversations answers from memory first.
+- A loading dialog covers the first load. From the first request until the
+  history, sources, last conversation and model list are all in, the page is
+  inert, so nothing can be used half-loaded. The "Cargando tu espacio" dialog
+  appears only if that takes more than 0.7 s, stays at least 0.4 s once shown
+  and closes by itself when everything is in place. If a request never answers,
+  after 20 s it offers to reload the page; if the load fails it gives way to the
+  error and a **Reintentar** button; signing out always releases the page.
+
+To see where the time goes, open the browser's developer tools on the Network
+tab: a healthy load shows the page, then a block of parallel API requests, and
+nothing long in series. To measure the link itself, run this from another
+network; a request from the host to its own Funnel name is answered locally and
+says nothing about the link:
+
+```bash
+curl -s -o /dev/null -w 'connect=%{time_connect}s tls=%{time_appconnect}s first byte=%{time_starttransfer}s total=%{time_total}s\n' https://<your-host>/healthz
+```
+
+How the page is built and loaded is described in
+[Browser workspace architecture](architecture/WEB_WORKSPACE.md).
 
 ## Existing interfaces
 
